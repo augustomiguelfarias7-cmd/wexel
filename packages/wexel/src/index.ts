@@ -1,5 +1,6 @@
 import { instantiateCore, type WexelCoreInstance } from "@wexel/core";
 import { BuzzBox } from "./buzz-box.js";
+import { PythonPackageManager } from "./python-packages.js";
 
 export type Language = "python" | "wasm" | "javascript" | string;
 
@@ -35,6 +36,7 @@ export interface WexelOptions {
   /** Adapter para um build real do CPython compilado para WebAssembly. */
   pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   denoRunner?: (code: string, language: "javascript" | "typescript" | "html", args: string[]) => Promise<ExecResult> | ExecResult;
+  pypiIndexUrl?: string;
 }
 
 export class WexelFileSystem {
@@ -69,6 +71,7 @@ export class WexelFileSystem {
   }
   get quota(): { usedBytes: number; limitBytes: number } { return { usedBytes: this.used, limitBytes: this.quotaBytes }; }
   exists(path: string): boolean { return this.files.has(this.resolve(path)) || this.files.has(`${this.resolve(path)}/.dir`); }
+  snapshot(): Array<{ path: string; data: Uint8Array }> { return [...this.files.entries()].filter(([path]) => !path.endsWith("/.dir")).map(([path, data]) => ({ path, data: data.slice() })); }
   private resolve(path: string): string {
     const raw = path.startsWith("/") ? path : `${this.cwd}/${path}`;
     const parts: string[] = [];
@@ -91,6 +94,7 @@ export class WexelShell {
         case "mkdir": this.runtime.fs.mkdir(args[0]); return { stdout: "", stderr: "", exitCode: 0 };
         case "cat": return { stdout: new TextDecoder().decode(this.runtime.fs.read(args[0])), stderr: "", exitCode: 0 };
         case "python": return this.runtime.exec({ language: "python", file: args[0], args: args.slice(1) });
+        case "pip": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada para pip"); return this.runtime.packages.pip(args);
         case "echo": return { stdout: `${args.join(" ")}\n`, stderr: "", exitCode: 0 };
         case "git": return { stdout: "Git backend is a controlled extension and is not enabled in this runtime.\n", stderr: "", exitCode: 2 };
         case "curl": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada"); return this.runtime.curl(args[0]);
@@ -106,6 +110,7 @@ export class WexelRuntime {
   readonly fs: WexelFileSystem;
   readonly mode: "load-only" | "run";
   readonly buzz = new BuzzBox();
+  readonly packages: PythonPackageManager;
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   private readonly denoRunner?: WexelOptions["denoRunner"];
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
@@ -113,6 +118,7 @@ export class WexelRuntime {
     this.denoRunner = options.denoRunner;
     this.mode = options.mode ?? "run";
     this.fs = new WexelFileSystem(options.storageQuotaBytes);
+    this.packages = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl });
     this.permissions = { network: false, storage: true, files: false, modules: true, ...options.permissions };
     this.shell = new WexelShell(this);
   }
@@ -168,4 +174,5 @@ async function defaultCoreBytes(): Promise<ArrayBuffer> {
 
 export { BuzzBox } from "./buzz-box.js";
 export { createBusyBoxRunner, type BusyBoxFactory, type BusyBoxRunOptions, type BusyBoxRunResult } from "./busybox.js";
+export { PythonPackageManager, type PackageInstallResult, type PackageManagerOptions } from "./python-packages.js";
 export type { WexelCoreInstance } from "@wexel/core";

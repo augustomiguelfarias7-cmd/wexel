@@ -1,8 +1,8 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import type { ExecResult } from "./index.js";
+import type { ExecResult, WexelFileSystem } from "./index.js";
 
 export interface WasiPythonOptions {
   pythonWasm: string;
@@ -11,6 +11,7 @@ export interface WasiPythonOptions {
   wasmtime?: string;
   cwd?: string;
   env?: Record<string, string>;
+  fs?: WexelFileSystem;
 }
 
 /** Executa o CPython 3.14.7 WASI real no backend Node.js via Wasmtime. */
@@ -21,8 +22,16 @@ export function createWasiPythonRunner(options: WasiPythonOptions) {
     const script = join(dir, "main.py");
     await writeFile(script, code, "utf8");
     const pythonRoot = options.pythonRoot ?? join(options.pythonWasm, "..");
+    if (options.fs) {
+      for (const file of options.fs.snapshot()) {
+        const relative = file.path.replace(/^\/site-packages\//, "").replace(/^\//, "");
+        const target = join(dir, "site-packages", relative);
+        await mkdir(join(target, ".."), { recursive: true });
+        await writeFile(target, file.data);
+      }
+    }
     return await new Promise((resolve, reject) => {
-      const child = spawn(wasmtime, ["run", "--wasm", "max-wasm-stack=16777216", "--dir", `${dir}::/work`, "--dir", `${pythonRoot}::/`, "--env", "PYTHONPATH=/Lib", options.pythonWasm, "/work/main.py", ...args], {
+      const child = spawn(wasmtime, ["run", "--wasm", "max-wasm-stack=16777216", "--dir", `${dir}::/work`, "--dir", `${pythonRoot}::/`, "--env", "PYTHONPATH=/Lib:/site-packages", "--dir", `${dir}/site-packages::/site-packages`, options.pythonWasm, "/work/main.py", ...args], {
         cwd: options.cwd ?? dir,
         env: { ...process.env, ...options.env },
       });

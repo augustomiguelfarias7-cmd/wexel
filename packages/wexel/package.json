@@ -4,12 +4,31 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist", "assets"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node-cpython.d.ts",
+      "import": "./dist/node-cpython.js"
+    },
+    "./busybox": {
+      "types": "./dist/busybox.d.ts",
+      "import": "./dist/busybox.js"
+    }
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": { "@wexel/core": "workspace:*" }
+  "dependencies": {
+    "@wexel/core": "workspace:*",
+    "fflate": "^0.8.3"
+  }
 }
