@@ -24,16 +24,23 @@ export interface WexelPermissions {
 
 export interface WexelOptions {
   permissions?: WexelPermissions;
+  /** Quota lógica do filesystem; não reserva essa quantidade de RAM. */
+  storageQuotaBytes?: number;
+  /** Perfil de ciclo de vida: carregar componentes sem executar ou executar scripts solicitados. */
+  mode?: "load-only" | "run";
   initialMemoryPages?: number;
   maxMemoryPages?: number;
   coreBytes?: BufferSource;
   /** Adapter para um build real do CPython compilado para WebAssembly. */
   pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
+  denoRunner?: (code: string, language: "javascript" | "typescript" | "html", args: string[]) => Promise<ExecResult> | ExecResult;
 }
 
-class VirtualFileSystem {
+export class WexelFileSystem {
   private files = new Map<string, Uint8Array>();
   private cwd = "/";
+  private used = 0;
+  constructor(private readonly quotaBytes = 3 * 1024 * 1024 * 1024) {}
 
   pwd(): string { return this.cwd; }
   cd(path: string): void {
@@ -44,7 +51,11 @@ class VirtualFileSystem {
   mkdir(path: string): void { this.files.set(`${this.resolve(path)}/.dir`, new Uint8Array()); }
   write(path: string, data: string | Uint8Array): void {
     const value = typeof data === "string" ? new TextEncoder().encode(data) : data;
-    this.files.set(this.resolve(path), value);
+    const target = this.resolve(path);
+    const previous = this.files.get(target)?.byteLength ?? 0;
+    if (this.used - previous + value.byteLength > this.quotaBytes) throw new Error(`Quota do filesystem excedida (${this.quotaBytes} bytes)`);
+    this.files.set(target, value);
+    this.used = this.used - previous + value.byteLength;
   }
   read(path: string): Uint8Array {
     const value = this.files.get(this.resolve(path));
@@ -55,6 +66,8 @@ class VirtualFileSystem {
     const prefix = this.cwd === "/" ? "/" : `${this.cwd}/`;
     return [...this.files.keys()].filter((x) => x.startsWith(prefix)).map((x) => x.slice(prefix.length)).filter((x) => x && x !== ".dir");
   }
+  get quota(): { usedBytes: number; limitBytes: number } { return { usedBytes: this.used, limitBytes: this.quotaBytes }; }
+  exists(path: string): boolean { return this.files.has(this.resolve(path)) || this.files.has(`${this.resolve(path)}/.dir`); }
   private resolve(path: string): string {
     const raw = path.startsWith("/") ? path : `${this.cwd}/${path}`;
     const parts: string[] = [];
@@ -89,10 +102,15 @@ export class WexelShell {
 export class WexelRuntime {
   readonly shell: WexelShell;
   readonly permissions: Required<WexelPermissions>;
-  readonly fs = new VirtualFileSystem();
+  readonly fs: WexelFileSystem;
+  readonly mode: "load-only" | "run";
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
+  private readonly denoRunner?: WexelOptions["denoRunner"];
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.pythonRunner = options.pythonRunner;
+    this.denoRunner = options.denoRunner;
+    this.mode = options.mode ?? "run";
+    this.fs = new WexelFileSystem(options.storageQuotaBytes);
     this.permissions = { network: false, storage: true, files: false, modules: true, ...options.permissions };
     this.shell = new WexelShell(this);
   }
@@ -101,13 +119,28 @@ export class WexelRuntime {
     return new WexelRuntime(await instantiateCore(bytes), options);
   }
   async exec(request: ExecRequest): Promise<ExecResult> {
+    if (this.mode === "load-only") return { stdout: "", stderr: "", exitCode: 0 };
     if (request.language === "wasm") throw new Error("Use loadModule() para módulos WASM");
+    if (request.language === "javascript" || request.language === "typescript" || request.language === "html") {
+      if (!this.denoRunner) throw new Error("Deno/WebAssembly não foi registrado para executar JavaScript, TypeScript ou HTML.");
+      const code = request.code ?? (request.file ? new TextDecoder().decode(this.fs.read(request.file)) : "");
+      return await this.denoRunner(code, request.language, request.args ?? []);
+    }
     if (request.language === "python") {
       const code = request.code ?? (request.file ? new TextDecoder().decode(this.fs.read(request.file)) : "");
       if (!this.pythonRunner) throw new Error("CPython/WebAssembly não foi registrado. Configure pythonRunner ao criar o runtime.");
       return await this.pythonRunner(code, request.args ?? []);
     }
     return { stdout: request.code ?? "", stderr: "", exitCode: 0 };
+  }
+  async loadScript(source: string | BufferSource): Promise<BufferSource> {
+    if (typeof source === "string") return await fetch(source).then((r) => r.arrayBuffer());
+    return source;
+  }
+  async runScript(source: string | BufferSource, request: Omit<ExecRequest, "code" | "file">): Promise<ExecResult> {
+    const bytes = await this.loadScript(source);
+    const code = typeof bytes === "string" ? bytes : new TextDecoder().decode(bytes);
+    return this.exec({ ...request, code });
   }
   async loadModule(source: string | BufferSource): Promise<WebAssembly.Instance> {
     if (!this.permissions.modules) throw new Error("Permissão de módulos negada");

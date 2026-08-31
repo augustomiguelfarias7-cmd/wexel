@@ -25,6 +25,21 @@ describe("Wexel runtime", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Permissão de rede negada");
   });
+  it("aplica uma quota lógica sem reservar 3 GB de RAM", async () => {
+    const rt = await runtime();
+    rt.fs.write("hello.txt", "Olá");
+    expect(rt.fs.quota.usedBytes).toBeGreaterThan(0);
+    expect(rt.fs.quota.limitBytes).toBe(3 * 1024 * 1024 * 1024);
+    expect(new TextDecoder().decode(rt.fs.read("hello.txt"))).toBe("Olá");
+  });
+  it("permite carregar sem executar no modo load-only", async () => {
+    const rt = await Wexel.create({ mode: "load-only", coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)) });
+    expect((await rt.exec({ language: "javascript", code: "throw new Error()" })).exitCode).toBe(0);
+  });
+  it("roteia JavaScript e TypeScript para um adapter Deno/WASM", async () => {
+    const rt = await Wexel.create({ coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)), denoRunner: async (code) => ({ stdout: code, stderr: "", exitCode: 0 }) });
+    expect((await rt.exec({ language: "typescript", code: "console.log(1)" })).stdout).toContain("console.log");
+  });
   it("aceita um executor CPython/WebAssembly real por adapter", async () => {
     const rt = await runtime();
     const python = await Wexel.create({ coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)), pythonRunner: async () => ({ stdout: "42\n", stderr: "", exitCode: 0 }) });
