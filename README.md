@@ -71,3 +71,17 @@ O runner é exposto por `createBusyBoxRunner()`. Ele foi desenhado para receber 
 ## Exemplos
 
 Os quatro exemplos estão em `examples/`: `01-load-only.mjs` apenas carrega o runtime; `02-wasm-module.mjs` carrega e executa um módulo WebAssembly; `03-cpython-adapter.mjs` mostra a integração do CPython real; e `04-busybox.mjs` mostra a integração do BusyBox WASM. Execute os dois primeiros com `node examples/01-load-only.mjs` e `node examples/02-wasm-module.mjs`. Os exemplos de CPython e BusyBox exigem seus respectivos artefatos e ABI de runtime.
+
+## CPython 3.14.7 WASI real
+
+O pacote agora inclui `packages/wexel/assets/cpython-3.14.7/python.wasm`, compilado do CPython 3.14.7 com o fluxo oficial `Tools/wasm/wasi`, além da biblioteca padrão CPython. O adapter Node.js `createWasiPythonRunner()` executa esse binário com Wasmtime e foi validado executando `print(2 + 40)` com saída `42`.
+
+O `ensurepip` e o wheel oficial do pip 26.2.1 também estão presentes no filesystem do runtime. Entretanto, o bootstrap tradicional do pip chama `subprocess`, e a build WASI oficial rejeita processos com `ENOTSUP`. Além disso, alguns módulos nativos, como `zlib`, dependem da forma como o cross-build empacota extensões. Assim, o binário CPython está integrado de verdade, mas a promessa de `pip install` completo exige uma camada de instalação WASM específica: baixar wheels compatíveis, validar tags WASM, extrair no filesystem e evitar builds que dependam de subprocessos. O projeto não declara esse fluxo como concluído antes de essa camada ser implementada e testada.
+
+O build oficial exige um Python nativo para produzir o build auxiliar, um compilador alvo WASI, um host WASI e duas etapas de compilação. O script usado nesta versão foi:
+
+```bash
+export WASI_SDK_PATH=/path/to/wasi-sdk
+export PATH=/path/to/wasmtime:$PATH
+python3 Tools/wasm/wasi build --quiet -- --config-cache
+```
