@@ -1,0 +1,10 @@
+import { readFile } from "node:fs/promises";
+import { Wexel, createBusyBoxRunner } from "../packages/wexel/dist/index.js";
+import BusyBoxModule from "../packages/wexel/assets/busybox/busybox.js";
+const coreBytes = await readFile(new URL("../packages/wexel/assets/core.wasm", import.meta.url));
+const wasmUrl = new URL("../packages/wexel/assets/busybox/busybox.wasm", import.meta.url).href;
+const busybox = await createBusyBoxRunner(BusyBoxModule, wasmUrl);
+const runtime = await Wexel.create({ coreBytes });
+console.log("BusyBox WASM carregado:", typeof busybox.run === "function");
+console.log(await busybox.run({ args: ["busybox", "echo", "BusyBox dentro do Wexel"] }));
+console.log(await runtime.shell.exec("pwd"));

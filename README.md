@@ -57,3 +57,17 @@ O armazenamento virtual e a memória WASM são conceitos distintos. O limite de 
 Esta entrega contém um SDK compilável e testado, carregamento real de módulos WebAssembly, shell virtual, permissões, filesystem organizado com quota lógica configurável, modo `load-only`, execução de scripts selecionados e adapters explícitos para CPython e Deno. A quota padrão é de aproximadamente 3 GB de armazenamento lógico e não aloca 3 GB de RAM. O tamanho total do pacote é controlado por artefatos e não deve ser confundido com memória disponível: um bundle de 115 GB não é apropriado para navegador e deverá ser distribuído em módulos sob demanda.
 
 A integração de um binário CPython específico depende do artefato WASM escolhido, da ABI do runtime e dos arquivos da biblioteca padrão. O núcleo do Wexel permanece independente dessa escolha e não utiliza micropip/Pyodide como mecanismo principal. Da mesma forma, Deno deve ser fornecido como runtime WASM compatível ou como adapter de host; o SDK não simula a execução quando o adapter não está instalado. Git, Curl avançado, persistência IndexedDB e execução de processos reais exigem backends adicionais, que permanecem como extensões controladas.
+
+## BusyBox real
+
+O repositório inclui os artefatos reais `packages/wexel/assets/busybox/busybox.js` e `busybox.wasm`, gerados a partir do projeto `mayflower/busybox-wasm` com BusyBox 1.37.0. O build pode ser repetido com:
+
+```bash
+pnpm build:busybox
+```
+
+O runner é exposto por `createBusyBoxRunner()`. Ele foi desenhado para receber a factory Emscripten ES module, o endereço do `.wasm`, argumentos e streams. O build de referência recomenda Emscripten 4.x; a imagem de desenvolvimento usada nesta execução forneceu Emscripten 3.1.6, portanto o artefato foi produzido, mas deve ser revalidado com Emscripten 4.x antes de uma release de produção.
+
+## Exemplos
+
+Os quatro exemplos estão em `examples/`: `01-load-only.mjs` apenas carrega o runtime; `02-wasm-module.mjs` carrega e executa um módulo WebAssembly; `03-cpython-adapter.mjs` mostra a integração do CPython real; e `04-busybox.mjs` mostra a integração do BusyBox WASM. Execute os dois primeiros com `node examples/01-load-only.mjs` e `node examples/02-wasm-module.mjs`. Os exemplos de CPython e BusyBox exigem seus respectivos artefatos e ABI de runtime.
