@@ -91,3 +91,30 @@ python3 Tools/wasm/wasi build --quiet -- --config-cache
 O comando `pip install <pacote>` do shell agora consulta o JSON do PyPI, escolhe um wheel universal `none-any`, verifica o digest SHA-256, extrai os arquivos com um descompactador WebAssembly-safe e grava o conteúdo diretamente em `/site-packages` da VFS. O pacote instalado é sincronizado pelo adapter Node.js e pode ser importado pelo CPython 3.14.7 WASI; o exemplo `examples/06-pip-native-install.mjs` valida esse fluxo com `six==1.17.0`.
 
 O instalador não executa `setup.py`, não cria subprocessos e não executa código de build vindo da internet. Isso torna a instalação segura e compatível com browser, mas significa que pacotes com extensões C/Rust ou wheels específicos de plataforma exigem um wheel WASM compatível e um ABI de extensão suportado. “Qualquer pacote Python” só será possível para pacotes puros ou para pacotes publicados com artefatos compatíveis com o alvo WebAssembly.
+
+## Modo loader-only
+
+Para integrar o motor em um serviço sem carregar arquivos de projeto e sem executar scripts automaticamente, use:
+
+```js
+import { Wexel } from "wexel";
+const engine = await Wexel.loadOnly({ coreBytes });
+```
+
+Nesse modo, o core WebAssembly e os componentes pré-instalados são carregados, o filesystem começa vazio, e chamadas de execução retornam apenas o estado de carregamento. O serviço consumidor pode guardar a instância e decidir posteriormente se deseja habilitar execução e permissões.
+
+## Integração no Star Code/Base44
+
+A documentação oficial do Base44 informa que dependências npm podem ser solicitadas pelo chat da IA e instaladas após aprovação do usuário [4]. Para o Star Code, a instrução deve pedir explicitamente uma dependência Git versionada, por exemplo:
+
+```json
+{
+  "dependencies": {
+    "wexel": "git+https://github.com/OWNER/wexel.git#COMMIT_OU_TAG"
+  }
+}
+```
+
+Depois da aprovação no Base44, o código deve importar `Wexel.loadOnly()` quando o objetivo for apenas registrar o motor em um serviço. A IA do Base44 não precisa “descobrir” o Wexel pela web: o projeto deve conter uma instrução explícita com a URL Git, o commit/tag e o contrato de uso. O pacote principal continua sendo JavaScript/TypeScript e, portanto, pertence ao ecossistema npm; `pip install git+URL` é reservado a um eventual pacote Python separado.
+
+[4]: https://docs.base44.com/Building-your-app/NPM-packages

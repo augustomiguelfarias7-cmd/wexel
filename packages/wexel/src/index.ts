@@ -164,7 +164,11 @@ export class WexelRuntime {
   }
 }
 
-export const Wexel = { create: WexelRuntime.create.bind(WexelRuntime) };
+export const Wexel = {
+  create: WexelRuntime.create.bind(WexelRuntime),
+  /** Carrega somente o core e componentes pré-instalados; não executa código nem cria arquivos. */
+  loadOnly: (options: WexelOptions = {}) => WexelRuntime.create({ ...options, mode: "load-only" as const }),
+};
 
 async function defaultCoreBytes(): Promise<ArrayBuffer> {
   const url = new URL("../assets/core.wasm", import.meta.url);
