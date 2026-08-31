@@ -167,4 +167,5 @@ async function defaultCoreBytes(): Promise<ArrayBuffer> {
 
 
 export { BuzzBox } from "./buzz-box.js";
+export { createBusyBoxRunner, type BusyBoxFactory, type BusyBoxRunOptions, type BusyBoxRunResult } from "./busybox.js";
 export type { WexelCoreInstance } from "@wexel/core";
