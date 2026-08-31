@@ -1,4 +1,5 @@
 import { instantiateCore, type WexelCoreInstance } from "@wexel/core";
+import { BuzzBox } from "./buzz-box.js";
 
 export type Language = "python" | "wasm" | "javascript" | string;
 
@@ -104,6 +105,7 @@ export class WexelRuntime {
   readonly permissions: Required<WexelPermissions>;
   readonly fs: WexelFileSystem;
   readonly mode: "load-only" | "run";
+  readonly buzz = new BuzzBox();
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   private readonly denoRunner?: WexelOptions["denoRunner"];
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
@@ -116,10 +118,12 @@ export class WexelRuntime {
   }
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
     const bytes = options.coreBytes ?? await defaultCoreBytes();
-    return new WexelRuntime(await instantiateCore(bytes), options);
+    const runtime = new WexelRuntime(await instantiateCore(bytes), options);
+    runtime.buzz.emit("runtime:ready", { mode: runtime.mode });
+    return runtime;
   }
   async exec(request: ExecRequest): Promise<ExecResult> {
-    if (this.mode === "load-only") return { stdout: "", stderr: "", exitCode: 0 };
+    if (this.mode === "load-only") { this.buzz.emit("script:loaded", { language: request.language }); return { stdout: "", stderr: "", exitCode: 0 }; }
     if (request.language === "wasm") throw new Error("Use loadModule() para módulos WASM");
     if (request.language === "javascript" || request.language === "typescript" || request.language === "html") {
       if (!this.denoRunner) throw new Error("Deno/WebAssembly não foi registrado para executar JavaScript, TypeScript ou HTML.");
@@ -145,7 +149,9 @@ export class WexelRuntime {
   async loadModule(source: string | BufferSource): Promise<WebAssembly.Instance> {
     if (!this.permissions.modules) throw new Error("Permissão de módulos negada");
     const bytes = typeof source === "string" ? await fetch(source).then((r) => r.arrayBuffer()) : source;
-    return (await WebAssembly.instantiate(bytes, {})).instance;
+    const instance = (await WebAssembly.instantiate(bytes, {})).instance;
+    this.buzz.emit("module:loaded", { source: typeof source === "string" ? source : "buffer" });
+    return instance;
   }
   async curl(url: string): Promise<ExecResult> {
     const response = await fetch(url); return { stdout: await response.text(), stderr: "", exitCode: response.ok ? 0 : response.status };
@@ -160,4 +166,5 @@ async function defaultCoreBytes(): Promise<ArrayBuffer> {
 }
 
 
+export { BuzzBox } from "./buzz-box.js";
 export type { WexelCoreInstance } from "@wexel/core";

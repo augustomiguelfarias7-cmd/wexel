@@ -1,5 +1,7 @@
 (module
-  (memory (export "memory") 1 256)
+  ;; 16 KiB iniciais, limite virtual de 3 GiB (49152 páginas de 64 KiB).
+  ;; O limite não reserva RAM; o host pode impor uma capacidade menor.
+  (memory (export "memory") 1 49152)
   (global $heap (mut i32) (i32.const 1024))
   (func (export "alloc") (param $size i32) (result i32)
     (local $ptr i32)
