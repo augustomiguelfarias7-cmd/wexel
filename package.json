@@ -1,0 +1,22 @@
+{
+  "name": "wexel",
+  "version": "0.1.0",
+  "description": "WebAssembly execution runtime and JavaScript/TypeScript SDK for controlled embedded runtimes.",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm --filter @wexel/core build && node scripts/build-core.mjs && pnpm --filter wexel build && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm",
+    "test": "pnpm --filter wexel test",
+    "typecheck": "pnpm --filter wexel typecheck",
+    "clean": "rm -rf packages/*/dist"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9",
+    "wabt": "^1.0.39"
+  }
+}
