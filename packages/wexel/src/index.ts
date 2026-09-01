@@ -236,4 +236,5 @@ export { createBusyBoxRunner, type BusyBoxFactory, type BusyBoxRunOptions, type 
 export { PythonPackageManager, type PackageInstallResult, type PackageManagerOptions } from "./python-packages.js";
 export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
 export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
+export { compileNativeSource, type CompileOptions, type CompileResult } from "./native-compiler.js";
 export type { WexelCoreInstance } from "@wexel/core";
