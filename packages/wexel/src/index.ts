@@ -1,6 +1,7 @@
 import { instantiateCore, type WexelCoreInstance } from "@wexel/core";
 import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
+import { V9Executor, type V9Document } from "./v9.js";
 
 export type Language = "python" | "wasm" | "javascript" | string;
 
@@ -37,13 +38,14 @@ export interface WexelOptions {
   pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   denoRunner?: (code: string, language: "javascript" | "typescript" | "html", args: string[]) => Promise<ExecResult> | ExecResult;
   pypiIndexUrl?: string;
+  v9?: V9Document;
 }
 
 export class WexelFileSystem {
   private files = new Map<string, Uint8Array>();
   private cwd = "/";
   private used = 0;
-  constructor(private readonly quotaBytes = 3 * 1024 * 1024 * 1024) {}
+  constructor(private readonly quotaBytes = 5 * 1024 * 1024 * 1024) {}
 
   pwd(): string { return this.cwd; }
   cd(path: string): void {
@@ -111,6 +113,7 @@ export class WexelRuntime {
   readonly mode: "load-only" | "run";
   readonly buzz = new BuzzBox();
   readonly packages: PythonPackageManager;
+  readonly v9 = new V9Executor();
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   private readonly denoRunner?: WexelOptions["denoRunner"];
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
@@ -159,6 +162,7 @@ export class WexelRuntime {
     this.buzz.emit("module:loaded", { source: typeof source === "string" ? source : "buffer" });
     return instance;
   }
+  createWebDocument(document: V9Document): string { return this.v9.createDocument(document); }
   async curl(url: string): Promise<ExecResult> {
     const response = await fetch(url); return { stdout: await response.text(), stderr: "", exitCode: response.ok ? 0 : response.status };
   }
@@ -179,4 +183,5 @@ async function defaultCoreBytes(): Promise<ArrayBuffer> {
 export { BuzzBox } from "./buzz-box.js";
 export { createBusyBoxRunner, type BusyBoxFactory, type BusyBoxRunOptions, type BusyBoxRunResult } from "./busybox.js";
 export { PythonPackageManager, type PackageInstallResult, type PackageManagerOptions } from "./python-packages.js";
+export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
 export type { WexelCoreInstance } from "@wexel/core";

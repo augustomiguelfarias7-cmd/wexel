@@ -25,11 +25,11 @@ describe("Wexel runtime", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Permissão de rede negada");
   });
-  it("aplica uma quota lógica sem reservar 3 GB de RAM", async () => {
+  it("aplica uma quota lógica de 5 GB sem reservar RAM na inicialização", async () => {
     const rt = await runtime();
     rt.fs.write("hello.txt", "Olá");
     expect(rt.fs.quota.usedBytes).toBeGreaterThan(0);
-    expect(rt.fs.quota.limitBytes).toBe(3 * 1024 * 1024 * 1024);
+    expect(rt.fs.quota.limitBytes).toBe(5 * 1024 * 1024 * 1024);
     expect(new TextDecoder().decode(rt.fs.read("hello.txt"))).toBe("Olá");
   });
   it("permite carregar sem executar no modo load-only", async () => {
