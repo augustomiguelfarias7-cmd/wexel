@@ -40,6 +40,21 @@ describe("Wexel runtime", () => {
     const rt = await Wexel.create({ coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)), denoRunner: async (code) => ({ stdout: code, stderr: "", exitCode: 0 }) });
     expect((await rt.exec({ language: "typescript", code: "console.log(1)" })).stdout).toContain("console.log");
   });
+  it("expõe comandos Linux-like adicionais sem subprocesso implícito", async () => {
+    const rt = await runtime();
+    expect((await rt.shell.exec("touch a.txt")).exitCode).toBe(0);
+    expect((await rt.shell.exec("echo olá")).stdout).toContain("olá");
+    expect((await rt.shell.exec("whoami")).stdout).toContain("wexel");
+    expect((await rt.shell.exec("uname")).stdout).toContain("wasm32");
+    expect((await rt.shell.exec("rm a.txt")).exitCode).toBe(0);
+    expect(rt.fs.exists("a.txt")).toBe(false);
+  });
+  it("monta HTML e CSS no V9 sem executar JavaScript", async () => {
+    const rt = await runtime();
+    const html = rt.createWebDocument({ html: "<main>ok</main>", css: "main { color: red }" });
+    expect(html).toContain("<main>ok</main>");
+    expect(html).toContain("main { color: red }");
+  });
   it("aceita um executor CPython/WebAssembly real por adapter", async () => {
     const rt = await runtime();
     const python = await Wexel.create({ coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)), pythonRunner: async () => ({ stdout: "42\n", stderr: "", exitCode: 0 }) });

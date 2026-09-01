@@ -39,6 +39,7 @@ export interface WexelOptions {
   denoRunner?: (code: string, language: "javascript" | "typescript" | "html", args: string[]) => Promise<ExecResult> | ExecResult;
   pypiIndexUrl?: string;
   v9?: V9Document;
+  gitCloneRunner?: (url: string, destination: string) => Promise<ExecResult> | ExecResult;
 }
 
 export class WexelFileSystem {
@@ -54,6 +55,14 @@ export class WexelFileSystem {
     this.cwd = next;
   }
   mkdir(path: string): void { this.files.set(`${this.resolve(path)}/.dir`, new Uint8Array()); }
+  touch(path: string): void { if (!this.exists(path)) this.write(path, new Uint8Array()); }
+  remove(path: string): void {
+    const target = this.resolve(path);
+    for (const key of [...this.files.keys()]) {
+      if (key === target || key.startsWith(`${target}/`)) { this.used -= this.files.get(key)?.byteLength ?? 0; this.files.delete(key); }
+    }
+  }
+  readText(path: string): string { return new TextDecoder().decode(this.read(path)); }
   write(path: string, data: string | Uint8Array): void {
     const value = typeof data === "string" ? new TextEncoder().encode(data) : data;
     const target = this.resolve(path);
@@ -85,7 +94,7 @@ export class WexelFileSystem {
 export class WexelShell {
   constructor(private readonly runtime: WexelRuntime) {}
   async exec(command: string): Promise<ExecResult> {
-    const tokens = command.trim().split(/\s+/).filter(Boolean);
+    const tokens = command.match(/(?:[^\s\"']+|\"[^\"]*\"|'[^']*')+/g)?.map((token) => token.replace(/^(['\"])(.*)\1$/, "$2")) ?? [];
     if (!tokens.length) return { stdout: "", stderr: "", exitCode: 0 };
     const [name, ...args] = tokens;
     try {
@@ -94,11 +103,18 @@ export class WexelShell {
         case "ls": return { stdout: `${this.runtime.fs.list().join("\n")}\n`, stderr: "", exitCode: 0 };
         case "cd": this.runtime.fs.cd(args[0] ?? "/"); return { stdout: "", stderr: "", exitCode: 0 };
         case "mkdir": this.runtime.fs.mkdir(args[0]); return { stdout: "", stderr: "", exitCode: 0 };
-        case "cat": return { stdout: new TextDecoder().decode(this.runtime.fs.read(args[0])), stderr: "", exitCode: 0 };
+        case "touch": this.runtime.fs.touch(args[0]); return { stdout: "", stderr: "", exitCode: 0 };
+        case "rm": this.runtime.fs.remove(args[0]); return { stdout: "", stderr: "", exitCode: 0 };
+        case "cat": return { stdout: this.runtime.fs.readText(args[0]), stderr: "", exitCode: 0 };
+        case "head": return { stdout: this.runtime.fs.readText(args[0]).split("\\n").slice(0, 10).join("\\n") + "\\n", stderr: "", exitCode: 0 };
+        case "tail": return { stdout: this.runtime.fs.readText(args[0]).split("\\n").slice(-10).join("\\n") + "\\n", stderr: "", exitCode: 0 };
         case "python": return this.runtime.exec({ language: "python", file: args[0], args: args.slice(1) });
         case "pip": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada para pip"); return this.runtime.packages.pip(args);
         case "echo": return { stdout: `${args.join(" ")}\n`, stderr: "", exitCode: 0 };
-        case "git": return { stdout: "Git backend is a controlled extension and is not enabled in this runtime.\n", stderr: "", exitCode: 2 };
+        case "git": return this.runtime.git(args);
+        case "whoami": return { stdout: "wexel\\n", stderr: "", exitCode: 0 };
+        case "uname": return { stdout: "WexelAssembly wasm32 sandbox\\n", stderr: "", exitCode: 0 };
+        case "help": return { stdout: "pwd ls cd mkdir touch rm cat head tail echo curl git pip whoami uname help\\n", stderr: "", exitCode: 0 };
         case "curl": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada"); return this.runtime.curl(args[0]);
         default: return { stdout: "", stderr: `wexel: comando não encontrado: ${name}\n`, exitCode: 127 };
       }
@@ -116,9 +132,11 @@ export class WexelRuntime {
   readonly v9 = new V9Executor();
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   private readonly denoRunner?: WexelOptions["denoRunner"];
+  private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.pythonRunner = options.pythonRunner;
     this.denoRunner = options.denoRunner;
+    this.gitCloneRunner = options.gitCloneRunner;
     this.mode = options.mode ?? "run";
     this.fs = new WexelFileSystem(options.storageQuotaBytes);
     this.packages = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl });
@@ -163,6 +181,12 @@ export class WexelRuntime {
     return instance;
   }
   createWebDocument(document: V9Document): string { return this.v9.createDocument(document); }
+  async git(args: string[]): Promise<ExecResult> {
+    if (args[0] !== "clone" || !args[1]) return { stdout: "", stderr: "Uso: git clone <url> [destino]\\n", exitCode: 2 };
+    if (!this.permissions.network) throw new Error("Permissão de rede negada para git clone");
+    if (!this.gitCloneRunner) return { stdout: "", stderr: "Git clone requer um adapter de host; BusyBox/Git WASM não foi registrado.\\n", exitCode: 2 };
+    return await this.gitCloneRunner(args[1], args[2] ?? args[1].split("/").pop()?.replace(/\\.git$/, "") ?? "repo");
+  }
   async curl(url: string): Promise<ExecResult> {
     const response = await fetch(url); return { stdout: await response.text(), stderr: "", exitCode: response.ok ? 0 : response.status };
   }
