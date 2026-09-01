@@ -58,7 +58,7 @@ export class PythonPackageManager {
       bytes += content.byteLength;
       count += 1;
     }
-    return { name: metadata.info.name, version: metadata.info.version, files: count, bytes, target: this.target, native: /(?:^|[-_])wasm32[-_]wasip?1?\.whl$/.test(selected.filename) };
+    return { name: metadata.info.name, version: metadata.info.version, files: count, bytes, target: this.target, native: /(?:^|[-_])wasm32[-_](?:wasi|wasip1)\.whl$/.test(selected.filename) };
   }
 
   async pip(args: string[], signal?: AbortSignal): Promise<{ stdout: string; stderr: string; exitCode: number }> {

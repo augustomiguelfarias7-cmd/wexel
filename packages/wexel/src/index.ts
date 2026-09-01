@@ -2,6 +2,7 @@ import { instantiateCore, type WexelCoreInstance } from "@wexel/core";
 import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
 import { V9Executor, type V9Document } from "./v9.js";
+import { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
 
 export type Language = "python" | "wasm" | "javascript" | string;
 
@@ -41,6 +42,7 @@ export interface WexelOptions {
   v9?: V9Document;
   gitCloneRunner?: (url: string, destination: string) => Promise<ExecResult> | ExecResult;
   nativeCliBytes?: BufferSource;
+  nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
 }
 
 export class WexelFileSystem {
@@ -132,6 +134,7 @@ export class WexelRuntime {
   readonly buzz = new BuzzBox();
   readonly packages: PythonPackageManager;
   readonly v9 = new V9Executor();
+  readonly extensions = new NativeExtensionRegistry();
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   private readonly denoRunner?: WexelOptions["denoRunner"];
   private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
@@ -150,6 +153,7 @@ export class WexelRuntime {
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
     const bytes = options.coreBytes ?? await defaultCoreBytes();
     const runtime = new WexelRuntime(await instantiateCore(bytes), options);
+    for (const extension of options.nativeExtensions ?? []) await runtime.loadNativeExtension(extension.manifest, extension.source);
     runtime.buzz.emit("runtime:ready", { mode: runtime.mode });
     return runtime;
   }
@@ -185,7 +189,18 @@ export class WexelRuntime {
     return instance;
   }
   createWebDocument(document: V9Document): string { return this.v9.createDocument(document); }
+  async loadNativeExtension(manifest: NativeExtensionManifest, source: BufferSource): Promise<NativeExtension> {
+    if (!this.permissions.modules) throw new Error("Permissão de módulos negada");
+    const extension = await this.extensions.load(manifest, source);
+    this.buzz.emit("extension:loaded", { name: manifest.name, version: manifest.version });
+    return extension;
+  }
   async nativeCli(args: string[]): Promise<ExecResult> {
+    const registered = this.extensions.get("wexel-cli");
+    if (registered) {
+      if (args[0] === "version") return { stdout: `${this.extensions.invoke("wexel-cli", "wexel_cli_abi_version")}\n`, stderr: "", exitCode: 0 };
+      if (args[0] === "add" && args[1] && args[2]) return { stdout: `${this.extensions.invoke("wexel-cli", "wexel_cli_add", [Number(args[1]), Number(args[2])])}\n`, stderr: "", exitCode: 0 };
+    }
     if (!this.nativeCliBytes) return { stdout: "", stderr: "CLI C++ WASM não foi registrada.\n", exitCode: 2 };
     const instance = (await WebAssembly.instantiate(this.nativeCliBytes, {})).instance;
     const exports = instance.exports as unknown as { wexel_cli_abi_version?: () => number; wexel_cli_add?: (a: number, b: number) => number };
@@ -220,4 +235,5 @@ export { BuzzBox } from "./buzz-box.js";
 export { createBusyBoxRunner, type BusyBoxFactory, type BusyBoxRunOptions, type BusyBoxRunResult } from "./busybox.js";
 export { PythonPackageManager, type PackageInstallResult, type PackageManagerOptions } from "./python-packages.js";
 export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
+export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
 export type { WexelCoreInstance } from "@wexel/core";
