@@ -118,3 +118,11 @@ A documentação oficial do Base44 informa que dependências npm podem ser solic
 Depois da aprovação no Base44, o código deve importar `Wexel.loadOnly()` quando o objetivo for apenas registrar o motor em um serviço. A IA do Base44 não precisa “descobrir” o Wexel pela web: o projeto deve conter uma instrução explícita com a URL Git, o commit/tag e o contrato de uso. O pacote principal continua sendo JavaScript/TypeScript e, portanto, pertence ao ecossistema npm; `pip install git+URL` é reservado a um eventual pacote Python separado.
 
 [4]: https://docs.base44.com/Building-your-app/NPM-packages
+
+## Wexel 2.0: Wexel Assembly, V9 e terminal
+
+A linha 2.0 mantém a base de execução da 1.0, mas define uma ABI mais explícita no Wexel Assembly. O core exporta `heap_mark`, `heap_reset`, `memory_limit_pages`, `runtime_version` e `yield`, permitindo que operações longas e módulos cooperativos controlem seu ciclo de vida sem criar subprocessos implícitos.
+
+A quota do filesystem da versão 2.0 é de 5 GiB. Ela é independente da memória linear WebAssembly: o core usa atualmente um limite linear compatível de 2 GiB, com crescimento sob demanda, porque engines WASM não aceitam um limite máximo arbitrário de 5 GiB em todos os ambientes. Essa distinção evita reservar RAM ou fazer o módulo falhar na inicialização.
+
+O V9 é a camada de apresentação web. Ele cria documentos HTML/CSS e os renderiza usando o motor nativo do navegador. Ele não interpreta JavaScript. JavaScript e TypeScript continuam pertencendo ao runtime Deno, que deve ser integrado como um módulo separado. O terminal Linux-like também é uma camada de comandos controlados sobre o Wexel Assembly, não uma promessa de que o WebAssembly possui um kernel Linux.
