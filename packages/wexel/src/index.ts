@@ -237,4 +237,5 @@ export { PythonPackageManager, type PackageInstallResult, type PackageManagerOpt
 export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
 export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
 export { compileNativeSource, type CompileOptions, type CompileResult } from "./native-compiler.js";
+export { RustV, type RustVOptions } from "./rustv.js";
 export type { WexelCoreInstance } from "@wexel/core";
