@@ -4,3 +4,4 @@ node_modules/
 packages/*/dist/
 
 vendor/
+native/*/target/
