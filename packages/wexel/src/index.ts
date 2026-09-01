@@ -40,6 +40,7 @@ export interface WexelOptions {
   pypiIndexUrl?: string;
   v9?: V9Document;
   gitCloneRunner?: (url: string, destination: string) => Promise<ExecResult> | ExecResult;
+  nativeCliBytes?: BufferSource;
 }
 
 export class WexelFileSystem {
@@ -114,7 +115,8 @@ export class WexelShell {
         case "git": return this.runtime.git(args);
         case "whoami": return { stdout: "wexel\\n", stderr: "", exitCode: 0 };
         case "uname": return { stdout: "WexelAssembly wasm32 sandbox\\n", stderr: "", exitCode: 0 };
-        case "help": return { stdout: "pwd ls cd mkdir touch rm cat head tail echo curl git pip whoami uname help\\n", stderr: "", exitCode: 0 };
+        case "help": return { stdout: "pwd ls cd mkdir touch rm cat head tail echo curl git pip native-cli whoami uname help\\n", stderr: "", exitCode: 0 };
+        case "native-cli": return this.runtime.nativeCli(args);
         case "curl": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada"); return this.runtime.curl(args[0]);
         default: return { stdout: "", stderr: `wexel: comando não encontrado: ${name}\n`, exitCode: 127 };
       }
@@ -133,10 +135,12 @@ export class WexelRuntime {
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   private readonly denoRunner?: WexelOptions["denoRunner"];
   private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
+  private readonly nativeCliBytes?: BufferSource;
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.pythonRunner = options.pythonRunner;
     this.denoRunner = options.denoRunner;
     this.gitCloneRunner = options.gitCloneRunner;
+    this.nativeCliBytes = options.nativeCliBytes;
     this.mode = options.mode ?? "run";
     this.fs = new WexelFileSystem(options.storageQuotaBytes);
     this.packages = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl });
@@ -181,10 +185,18 @@ export class WexelRuntime {
     return instance;
   }
   createWebDocument(document: V9Document): string { return this.v9.createDocument(document); }
+  async nativeCli(args: string[]): Promise<ExecResult> {
+    if (!this.nativeCliBytes) return { stdout: "", stderr: "CLI C++ WASM não foi registrada.\n", exitCode: 2 };
+    const instance = (await WebAssembly.instantiate(this.nativeCliBytes, {})).instance;
+    const exports = instance.exports as unknown as { wexel_cli_abi_version?: () => number; wexel_cli_add?: (a: number, b: number) => number };
+    if (args[0] === "version") return { stdout: `${exports.wexel_cli_abi_version?.() ?? 0}\n`, stderr: "", exitCode: 0 };
+    if (args[0] === "add" && args[1] && args[2]) return { stdout: `${exports.wexel_cli_add?.(Number(args[1]), Number(args[2])) ?? 0}\n`, stderr: "", exitCode: 0 };
+    return { stdout: "", stderr: "Uso: native-cli version | native-cli add <a> <b>\n", exitCode: 2 };
+  }
   async git(args: string[]): Promise<ExecResult> {
-    if (args[0] !== "clone" || !args[1]) return { stdout: "", stderr: "Uso: git clone <url> [destino]\\n", exitCode: 2 };
+    if (args[0] !== "clone" || !args[1]) return { stdout: "", stderr: "Uso: git clone <url> [destino]\n", exitCode: 2 };
     if (!this.permissions.network) throw new Error("Permissão de rede negada para git clone");
-    if (!this.gitCloneRunner) return { stdout: "", stderr: "Git clone requer um adapter de host; BusyBox/Git WASM não foi registrado.\\n", exitCode: 2 };
+    if (!this.gitCloneRunner) return { stdout: "", stderr: "Git clone requer um adapter de host; BusyBox/Git WASM não foi registrado.\n", exitCode: 2 };
     return await this.gitCloneRunner(args[1], args[2] ?? args[1].split("/").pop()?.replace(/\\.git$/, "") ?? "repo");
   }
   async curl(url: string): Promise<ExecResult> {

@@ -16,6 +16,7 @@ export interface PackageInstallResult {
   files: number;
   bytes: number;
   target: string;
+  native: boolean;
 }
 
 export interface PackageManagerOptions {
@@ -39,9 +40,9 @@ export class PythonPackageManager {
   async install(name: string, version?: string, signal?: AbortSignal): Promise<PackageInstallResult> {
     const endpoint = version ? `${this.indexUrl}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/json` : `${this.indexUrl}/${encodeURIComponent(name)}/json`;
     const metadata = await (await this.fetcher(endpoint, { signal })).json() as { info: { name: string; version: string }; urls: PackageFile[] };
-    const candidates = metadata.urls.filter((file) => file.packagetype === "bdist_wheel" && /(?:^|-)none-any\.whl$/.test(file.filename) && (file.python_version === "py3" || file.python_version === "py2.py3"));
+    const candidates = metadata.urls.filter((file) => file.packagetype === "bdist_wheel" && (file.python_version === "py3" || file.python_version === "py2.py3") && /(?:^|[-_])(none-any|wasm32[-_]wasi|wasm32[-_]wasip1)\.whl$/.test(file.filename));
     const selected = candidates[0];
-    if (!selected) throw new Error(`Nenhum wheel Python puro compatível para ${name}; wheels nativos precisam de ABI WASM específica.`);
+    if (!selected) throw new Error(`Nenhum wheel compatível para ${name}; publique um wheel none-any ou wasm32-wasi/wasm32-wasip1.`);
     const response = await this.fetcher(selected.url, { signal });
     if (!response.ok) throw new Error(`Download falhou: HTTP ${response.status}`);
     const archive = new Uint8Array(await response.arrayBuffer());
@@ -57,7 +58,7 @@ export class PythonPackageManager {
       bytes += content.byteLength;
       count += 1;
     }
-    return { name: metadata.info.name, version: metadata.info.version, files: count, bytes, target: this.target };
+    return { name: metadata.info.name, version: metadata.info.version, files: count, bytes, target: this.target, native: /(?:^|[-_])wasm32[-_]wasip?1?\.whl$/.test(selected.filename) };
   }
 
   async pip(args: string[], signal?: AbortSignal): Promise<{ stdout: string; stderr: string; exitCode: number }> {
