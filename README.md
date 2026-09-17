@@ -296,8 +296,6 @@ const sandbox = await execution.createSandbox({
 });
 ```
 
-WebPink can also provide communication between sandboxes.
-
 ## CPython and WASI
 
 Wexel includes a CPython WASI integration for Node environments.
@@ -339,7 +337,7 @@ The installer does not execute arbitrary `setup.py` installation logic.
 
 Wexel supports the Emscripten-built BusyBox WebAssembly runtime.
 
-The runner accepts either a URL or a WebAssembly byte source:
+The runner accepts either a URL or a WebAssembly byte source.
 
 ```ts
 const busybox = await createBusyBoxRunner(
