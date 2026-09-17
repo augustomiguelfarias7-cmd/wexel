@@ -37,12 +37,18 @@ export function createWasiPythonRunner(options: WasiPythonOptions) {
       });
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
+      let settled = false;
+      const finish = (result: ExecResult) => {
+        if (settled) return;
+        settled = true;
+        void rm(dir, { recursive: true, force: true });
+        resolve(result);
+      };
       child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
       child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
-      child.on("error", reject);
+      child.on("error", (error) => finish({ stdout: Buffer.concat(stdout).toString(), stderr: `${error.message}\n`, exitCode: 127 }));
       child.on("close", (exitCode) => {
-        void rm(dir, { recursive: true, force: true });
-        resolve({ stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString(), exitCode: exitCode ?? 1 });
+        finish({ stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString(), exitCode: exitCode ?? 1 });
       });
     });
   };

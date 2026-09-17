@@ -3,6 +3,7 @@ import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
 import { V9Executor, type V9Document } from "./v9.js";
 import { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
+import { DenoWasmRuntime } from "./deno-wasm.js";
 
 export type Language = "python" | "wasm" | "javascript" | string;
 
@@ -30,6 +31,8 @@ export interface WexelOptions {
   permissions?: WexelPermissions;
   /** Quota lógica do filesystem; não reserva essa quantidade de RAM. */
   storageQuotaBytes?: number;
+  /** Home virtual inicial, no formato Linux. O padrão é /home/wexel. */
+  homeDirectory?: string;
   /** Perfil de ciclo de vida: carregar componentes sem executar ou executar scripts solicitados. */
   mode?: "load-only" | "run";
   initialMemoryPages?: number;
@@ -37,7 +40,16 @@ export interface WexelOptions {
   coreBytes?: BufferSource;
   /** Adapter para um build real do CPython compilado para WebAssembly. */
   pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
-  denoRunner?: (code: string, language: "javascript" | "typescript" | "html", args: string[]) => Promise<ExecResult> | ExecResult;
+  /** Cria um adapter Python associado ao filesystem virtual da instância. */
+  pythonRunnerFactory?: (fs: WexelFileSystem) => NonNullable<WexelOptions["pythonRunner"]>;
+  /** Runtime Deno compatível com WebAssembly, integrado pelo consumidor do SDK. */
+  denoRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
+  /** Módulo Deno/WebAssembly que implementa a ABI DENO_WASM_ABI_VERSION. */
+  denoRuntime?: DenoWasmRuntime;
+  /** Executor de Bash/BusyBox já carregado pelo host, sem subprocesso implícito. */
+  bashRunner?: (args: string[]) => Promise<ExecResult> | ExecResult;
+  /** Gateway de rede controlado, usado por curl e pelo instalador de pacotes. */
+  networkFetch?: typeof fetch;
   pypiIndexUrl?: string;
   v9?: V9Document;
   gitCloneRunner?: (url: string, destination: string) => Promise<ExecResult> | ExecResult;
@@ -47,9 +59,16 @@ export interface WexelOptions {
 
 export class WexelFileSystem {
   private files = new Map<string, Uint8Array>();
-  private cwd = "/";
+  private cwd: string;
   private used = 0;
-  constructor(private readonly quotaBytes = 5 * 1024 * 1024 * 1024) {}
+  readonly home: string;
+  constructor(private readonly quotaBytes = 5 * 1024 * 1024 * 1024, homeDirectory = "/home/wexel") {
+    this.home = normalizeHome(homeDirectory);
+    this.cwd = this.home;
+    for (const directory of ["/bin", "/home", this.home, "/tmp", "/usr", "/var", "/site-packages"]) {
+      this.files.set(`${directory}/.dir`, new Uint8Array());
+    }
+  }
 
   pwd(): string { return this.cwd; }
   cd(path: string): void {
@@ -87,7 +106,8 @@ export class WexelFileSystem {
   exists(path: string): boolean { return this.files.has(this.resolve(path)) || this.files.has(`${this.resolve(path)}/.dir`); }
   snapshot(): Array<{ path: string; data: Uint8Array }> { return [...this.files.entries()].filter(([path]) => !path.endsWith("/.dir")).map(([path, data]) => ({ path, data: data.slice() })); }
   private resolve(path: string): string {
-    const raw = path.startsWith("/") ? path : `${this.cwd}/${path}`;
+    const expanded = path === "~" || path.startsWith("~/") ? `${this.home}${path.slice(1)}` : path;
+    const raw = expanded.startsWith("/") ? expanded : `${this.cwd}/${expanded}`;
     const parts: string[] = [];
     for (const part of raw.split("/")) { if (!part || part === ".") continue; if (part === "..") parts.pop(); else parts.push(part); }
     return `/${parts.join("/")}`.replace(/\/$/, "") || "/";
@@ -112,14 +132,16 @@ export class WexelShell {
         case "head": return { stdout: this.runtime.fs.readText(args[0]).split("\\n").slice(0, 10).join("\\n") + "\\n", stderr: "", exitCode: 0 };
         case "tail": return { stdout: this.runtime.fs.readText(args[0]).split("\\n").slice(-10).join("\\n") + "\\n", stderr: "", exitCode: 0 };
         case "python": return this.runtime.exec({ language: "python", file: args[0], args: args.slice(1) });
+        case "deno": return this.runtime.deno(args);
+        case "bash": return this.runtime.bash(args);
         case "pip": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada para pip"); return this.runtime.packages.pip(args);
         case "echo": return { stdout: `${args.join(" ")}\n`, stderr: "", exitCode: 0 };
         case "git": return this.runtime.git(args);
         case "whoami": return { stdout: "wexel\\n", stderr: "", exitCode: 0 };
         case "uname": return { stdout: "WexelAssembly wasm32 sandbox\\n", stderr: "", exitCode: 0 };
-        case "help": return { stdout: "pwd ls cd mkdir touch rm cat head tail echo curl git pip native-cli whoami uname help\\n", stderr: "", exitCode: 0 };
+        case "help": return { stdout: "pwd ls cd mkdir touch rm cat head tail echo curl git pip deno bash native-cli whoami uname help\\n", stderr: "", exitCode: 0 };
         case "native-cli": return this.runtime.nativeCli(args);
-        case "curl": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada"); return this.runtime.curl(args[0]);
+        case "curl": if (!this.runtime.permissions.network) throw new Error("Permissão de rede negada"); return await this.runtime.curl(args[0]);
         default: return { stdout: "", stderr: `wexel: comando não encontrado: ${name}\n`, exitCode: 127 };
       }
     } catch (error) { return { stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n`, exitCode: 1 }; }
@@ -137,16 +159,20 @@ export class WexelRuntime {
   readonly extensions = new NativeExtensionRegistry();
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   private readonly denoRunner?: WexelOptions["denoRunner"];
+  private readonly bashRunner?: WexelOptions["bashRunner"];
+  private readonly networkFetch: typeof fetch;
   private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
   private readonly nativeCliBytes?: BufferSource;
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
-    this.pythonRunner = options.pythonRunner;
-    this.denoRunner = options.denoRunner;
+    this.mode = options.mode ?? "run";
+    this.fs = new WexelFileSystem(options.storageQuotaBytes, options.homeDirectory);
+    this.pythonRunner = options.pythonRunner ?? options.pythonRunnerFactory?.(this.fs);
+    this.denoRunner = options.denoRunner ?? options.denoRuntime?.run.bind(options.denoRuntime);
+    this.bashRunner = options.bashRunner;
+    this.networkFetch = options.networkFetch ?? fetch;
     this.gitCloneRunner = options.gitCloneRunner;
     this.nativeCliBytes = options.nativeCliBytes;
-    this.mode = options.mode ?? "run";
-    this.fs = new WexelFileSystem(options.storageQuotaBytes);
-    this.packages = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl });
+    this.packages = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl, fetcher: this.networkFetch });
     this.permissions = { network: false, storage: true, files: false, modules: true, ...options.permissions };
     this.shell = new WexelShell(this);
   }
@@ -160,8 +186,8 @@ export class WexelRuntime {
   async exec(request: ExecRequest): Promise<ExecResult> {
     if (this.mode === "load-only") { this.buzz.emit("script:loaded", { language: request.language }); return { stdout: "", stderr: "", exitCode: 0 }; }
     if (request.language === "wasm") throw new Error("Use loadModule() para módulos WASM");
-    if (request.language === "javascript" || request.language === "typescript" || request.language === "html") {
-      if (!this.denoRunner) throw new Error("Deno/WebAssembly não foi registrado para executar JavaScript, TypeScript ou HTML.");
+    if (request.language === "javascript" || request.language === "typescript") {
+      if (!this.denoRunner) throw new Error("Runtime Deno/WebAssembly não foi registrado para executar JavaScript ou TypeScript.");
       const code = request.code ?? (request.file ? new TextDecoder().decode(this.fs.read(request.file)) : "");
       return await this.denoRunner(code, request.language, request.args ?? []);
     }
@@ -171,6 +197,21 @@ export class WexelRuntime {
       return await this.pythonRunner(code, request.args ?? []);
     }
     return { stdout: request.code ?? "", stderr: "", exitCode: 0 };
+  }
+  async deno(args: string[]): Promise<ExecResult> {
+    const [command, target, ...scriptArgs] = args;
+    if (command === "--version" || command === "version") return { stdout: "Deno/WebAssembly adapter\\n", stderr: "", exitCode: 0 };
+    if (command === "eval" && target !== undefined) return this.exec({ language: "javascript", code: target, args: scriptArgs });
+    if (command === "run" && target) {
+      const language = denoLanguage(target);
+      if (!language) return { stdout: "", stderr: `deno: extensão não suportada: ${target}\\n`, exitCode: 2 };
+      return this.exec({ language, file: target, args: scriptArgs });
+    }
+    return { stdout: "", stderr: "Uso: deno run <arquivo.js|arquivo.ts> [args] | deno eval <código> | deno --version\\n", exitCode: 2 };
+  }
+  async bash(args: string[]): Promise<ExecResult> {
+    if (!this.bashRunner) return { stdout: "", stderr: "Bash/BusyBox não foi registrado.\n", exitCode: 2 };
+    return await this.bashRunner(args);
   }
   async loadScript(source: string | BufferSource): Promise<BufferSource> {
     if (typeof source === "string") return await fetch(source).then((r) => r.arrayBuffer());
@@ -215,7 +256,7 @@ export class WexelRuntime {
     return await this.gitCloneRunner(args[1], args[2] ?? args[1].split("/").pop()?.replace(/\\.git$/, "") ?? "repo");
   }
   async curl(url: string): Promise<ExecResult> {
-    const response = await fetch(url); return { stdout: await response.text(), stderr: "", exitCode: response.ok ? 0 : response.status };
+    const response = await this.networkFetch(url); return { stdout: await response.text(), stderr: "", exitCode: response.ok ? 0 : response.status };
   }
 }
 
@@ -230,6 +271,20 @@ async function defaultCoreBytes(): Promise<ArrayBuffer> {
   try { return await fetch(url).then((r) => r.arrayBuffer());   } catch { throw new Error("Wexel Assembly core não encontrado. Execute o build ou forneça coreBytes."); }
 }
 
+function denoLanguage(path: string): "javascript" | "typescript" | undefined {
+  const extension = path.split("?")[0].split(".").pop()?.toLowerCase();
+  if (extension === "js" || extension === "mjs" || extension === "cjs") return "javascript";
+  if (extension === "ts" || extension === "mts" || extension === "cts" || extension === "tsx") return "typescript";
+  return undefined;
+}
+
+function normalizeHome(path: string): string {
+  if (!path.startsWith("/")) throw new Error("O diretório home deve ser um caminho absoluto.");
+  const normalized = path.replace(/\/+$/, "");
+  if (normalized === "/" || normalized.includes("/../") || normalized.endsWith("/..")) throw new Error("Diretório home inválido.");
+  return normalized;
+}
+
 
 export { BuzzBox } from "./buzz-box.js";
 export { createBusyBoxRunner, type BusyBoxFactory, type BusyBoxRunOptions, type BusyBoxRunResult } from "./busybox.js";
@@ -238,4 +293,6 @@ export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
 export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
 export { compileNativeSource, type CompileOptions, type CompileResult } from "./native-compiler.js";
 export { RustV, type RustVOptions } from "./rustv.js";
+export { DenoWasmRuntime, DENO_WASM_ABI_VERSION } from "./deno-wasm.js";
+export { WebPink, WebPinkClient, type WebPinkMessage, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
 export type { WexelCoreInstance } from "@wexel/core";

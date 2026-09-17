@@ -7,7 +7,7 @@ console.log(await runtime.shell.exec("pip install six"));
 const runPython = createNodePython({
   pythonWasm: new URL("../packages/wexel/assets/cpython-3.14.7/python.wasm", import.meta.url).pathname,
   pythonRoot: new URL("../packages/wexel/assets/cpython-3.14.7", import.meta.url).pathname,
-  wasmtime: process.env.WASMTIME ?? "/home/ubuntu/wexel/toolchains/wasmtime/wasmtime",
+  wasmtime: process.env.WASMTIME ?? "wasmtime",
   fs: runtime.fs,
 });
 console.log(await runPython("import six; print(six.__version__)"));
