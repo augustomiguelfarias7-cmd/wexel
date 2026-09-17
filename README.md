@@ -1,176 +1,605 @@
 # Wexel
 
-**Wexel** é um framework JavaScript/TypeScript para incorporar o Wexel Assembly em aplicações modernas. O Wexel Assembly é um runtime próprio baseado em WebAssembly; não é um sistema operacional e não pretende ser uma versão oficial do WebAssembly.
+Wexel 3.0 is a WebAssembly execution runtime and JavaScript/TypeScript SDK for running controlled embedded runtimes inside applications and backend services.
 
-## Arquitetura
+Wexel provides a virtual filesystem, shell execution, WebAssembly modules, language adapters, isolated Node.js sandboxes, controlled networking and native WebAssembly tooling without requiring application code to directly manage the underlying runtime infrastructure.
 
-A implementação está organizada em dois pacotes. `@wexel/core` compila `core.wat` para `core.wasm` e fornece o Execution Core, memória linear, alocador e funções ABI básicas. `wexel` fornece a API de alto nível, carregador de módulos, shell virtual, sistema de arquivos em memória e políticas de permissões.
+Highlights
 
-| Camada | Implementação |
-|---|---|
-| SDK | `Wexel.create()`, `runtime.exec()`, `runtime.loadModule()` e `runtime.shell.exec()` |
-| Runtime | Permissões, filesystem virtual, rede controlada e roteamento de linguagens |
-| Execution Core | Módulo WebAssembly com `memory`, `alloc`, `add` e `write_byte` |
-| Extensões | Adapters para CPython/WASM, Git, Curl e futuros runtimes |
+- WebAssembly-first execution
+- JavaScript and TypeScript through Deno WASM
+- Linux-like virtual filesystem
+- Virtual shell with "~" and configurable home directories
+- Isolated backend sandboxes through "NodeExecution"
+- Per-sandbox permissions and storage quotas
+- Controlled networking through WebPink
+- Internal sandbox-to-sandbox messaging
+- CPython WASI integration
+- BusyBox WASM integration
+- Python package installation through the virtual filesystem
+- Native C/C++ to WebAssembly compilation through Emscripten
+- RustV support for precompiled Rust WebAssembly modules
+- Native WebAssembly extensions
+- V9 HTML/CSS execution environment
+- Load-only mode for controlled initialization
+- TypeScript API
 
-## Desenvolvimento
+Installation
 
-```bash
-pnpm install --ignore-scripts
-pnpm build
-pnpm test
-```
+For a project that consumes the package directly from Git, use:
 
-O pacote compilado pode ser encontrado em `packages/wexel/dist`. Para usar o SDK durante o desenvolvimento:
+npm install git+https://github.com/augustomiguelfarias7-cmd/wexel.git
 
-```ts
+The repository is structured as a workspace containing the public "wexel" package and the internal "@wexel/core" package.
+
+Quick Start
+
 import { Wexel } from "wexel";
 
-const runtime = await Wexel.create();
-console.log((await runtime.shell.exec("pwd")).stdout);
-const wasm = await runtime.loadModule("./program.wasm");
-```
-
-## Python via CPython/WebAssembly
-
-O SDK não falsifica a execução Python. Para respeitar a especificação, o executor Python deve ser um adapter conectado a um build real do CPython compilado para WebAssembly:
-
-```ts
 const runtime = await Wexel.create({
-  pythonRunner: async (code, args) => {
-    // Encaminhar para o módulo CPython/WASM incorporado.
-    return { stdout: "", stderr: "", exitCode: 0 };
-  }
+  coreBytes,
 });
-```
 
-A integração de um binário CPython específico depende do artefato WASM escolhido, da ABI do runtime e dos arquivos da biblioteca padrão. O núcleo do Wexel permanece independente dessa escolha e não utiliza micropip/Pyodide como mecanismo principal.
+runtime.fs.write(
+  "/app.js",
+  "console.log('Hello from Wexel');",
+);
 
-## Segurança e limitações
+const result = await runtime.shell.exec("cat /app.js");
 
-Todas as operações de rede, armazenamento, arquivos e carregamento de módulos devem ser explicitamente autorizadas pelas permissões do runtime. A rede é negada por padrão. O shell atual é virtual e não executa comandos arbitrários do sistema operacional. Git e Curl são pontos de extensão controlados; Curl somente funciona quando a aplicação concede rede e quando o navegador permite a requisição, inclusive sob CORS.
+console.log(result);
 
-O armazenamento virtual e a memória WASM são conceitos distintos. O limite de memória do core é configurável no módulo WebAssembly, enquanto o armazenamento deve ser conectado posteriormente a uma implementação persistente, como IndexedDB, sem pressupor consumo equivalente de RAM.
+The runtime operates against its virtual filesystem instead of directly exposing the host filesystem.
 
-## Estado atual
+Runtime Architecture
 
-Esta entrega contém um SDK compilável e testado, carregamento real de módulos WebAssembly, shell virtual, permissões, filesystem organizado com quota lógica configurável, modo `load-only`, execução de scripts selecionados e adapters explícitos para CPython e Deno. A quota padrão é de aproximadamente 3 GB de armazenamento lógico e não aloca 3 GB de RAM. O tamanho total do pacote é controlado por artefatos e não deve ser confundido com memória disponível: um bundle de 115 GB não é apropriado para navegador e deverá ser distribuído em módulos sob demanda.
+Wexel 3.0 is organized around several execution layers:
 
-A integração de um binário CPython específico depende do artefato WASM escolhido, da ABI do runtime e dos arquivos da biblioteca padrão. O núcleo do Wexel permanece independente dessa escolha e não utiliza micropip/Pyodide como mecanismo principal. Da mesma forma, Deno deve ser fornecido como runtime WASM compatível ou como adapter de host; o SDK não simula a execução quando o adapter não está instalado. Git, Curl avançado, persistência IndexedDB e execução de processos reais exigem backends adicionais, que permanecem como extensões controladas.
+Application
+    │
+    ▼
+Wexel Runtime
+    │
+    ├── Virtual Shell
+    ├── Virtual Filesystem
+    ├── Permissions
+    ├── Storage Quota
+    │
+    ├── Deno WASM
+    ├── CPython / WASI
+    ├── BusyBox
+    ├── Native WASM Extensions
+    └── V9
 
-## BusyBox real
+For backend applications, "NodeExecution" adds another layer:
 
-O repositório inclui os artefatos reais `packages/wexel/assets/busybox/busybox.js` e `busybox.wasm`, gerados a partir do projeto `mayflower/busybox-wasm` com BusyBox 1.37.0. O build pode ser repetido com:
+Node.js / Express / Fastify / API
+                │
+                ▼
+          NodeExecution
+                │
+       ┌────────┼────────┐
+       ▼        ▼        ▼
+   Sandbox A Sandbox B Sandbox C
+       │        │        │
+      VFS      VFS      VFS
+      WASM     WASM     WASM
+      Home     Home     Home
+       │        │        │
+       └────────┼────────┘
+                ▼
+             WebPink
 
-```bash
-pnpm build:busybox
-```
+Each sandbox is created independently and receives its own runtime instance and virtual filesystem.
 
-O runner é exposto por `createBusyBoxRunner()`. Ele foi desenhado para receber a factory Emscripten ES module, o endereço do `.wasm`, argumentos e streams. O build de referência recomenda Emscripten 4.x; a imagem de desenvolvimento usada nesta execução forneceu Emscripten 3.1.6, portanto o artefato foi produzido, mas deve ser revalidado com Emscripten 4.x antes de uma release de produção.
+Deno WebAssembly
 
-## Exemplos
+Wexel 3.0 adds a Deno-compatible WebAssembly runtime through "DenoWasmRuntime".
 
-Os quatro exemplos estão em `examples/`: `01-load-only.mjs` apenas carrega o runtime; `02-wasm-module.mjs` carrega e executa um módulo WebAssembly; `03-cpython-adapter.mjs` mostra a integração do CPython real; e `04-busybox.mjs` mostra a integração do BusyBox WASM. Execute os dois primeiros com `node examples/01-load-only.mjs` e `node examples/02-wasm-module.mjs`. Os exemplos de CPython e BusyBox exigem seus respectivos artefatos e ABI de runtime.
+The virtual shell exposes the "deno" command and routes JavaScript and TypeScript execution to the Deno WASM runtime.
 
-## CPython 3.14.7 WASI real
-
-O pacote agora inclui `packages/wexel/assets/cpython-3.14.7/python.wasm`, compilado do CPython 3.14.7 com o fluxo oficial `Tools/wasm/wasi`, além da biblioteca padrão CPython. O adapter Node.js `createWasiPythonRunner()` executa esse binário com Wasmtime e foi validado executando `print(2 + 40)` com saída `42`.
-
-O `ensurepip` e o wheel oficial do pip 26.2.1 também estão presentes no filesystem do runtime. Entretanto, o bootstrap tradicional do pip chama `subprocess`, e a build WASI oficial rejeita processos com `ENOTSUP`. Além disso, alguns módulos nativos, como `zlib`, dependem da forma como o cross-build empacota extensões. Assim, o binário CPython está integrado de verdade, mas a promessa de `pip install` completo exige uma camada de instalação WASM específica: baixar wheels compatíveis, validar tags WASM, extrair no filesystem e evitar builds que dependam de subprocessos. O projeto não declara esse fluxo como concluído antes de essa camada ser implementada e testada.
-
-O build oficial exige um Python nativo para produzir o build auxiliar, um compilador alvo WASI, um host WASI e duas etapas de compilação. O script usado nesta versão foi:
-
-```bash
-export WASI_SDK_PATH=/path/to/wasi-sdk
-export PATH=/path/to/wasmtime:$PATH
-python3 Tools/wasm/wasi build --quiet -- --config-cache
-```
-
-## Pip WASM-native
-
-O comando `pip install <pacote>` do shell agora consulta o JSON do PyPI, escolhe um wheel universal `none-any`, verifica o digest SHA-256, extrai os arquivos com um descompactador WebAssembly-safe e grava o conteúdo diretamente em `/site-packages` da VFS. O pacote instalado é sincronizado pelo adapter Node.js e pode ser importado pelo CPython 3.14.7 WASI; o exemplo `examples/06-pip-native-install.mjs` valida esse fluxo com `six==1.17.0`.
-
-O instalador não executa `setup.py`, não cria subprocessos e não executa código de build vindo da internet. Isso torna a instalação segura e compatível com browser, mas significa que pacotes com extensões C/Rust ou wheels específicos de plataforma exigem um wheel WASM compatível e um ABI de extensão suportado. “Qualquer pacote Python” só será possível para pacotes puros ou para pacotes publicados com artefatos compatíveis com o alvo WebAssembly.
-
-## Modo loader-only
-
-Para integrar o motor em um serviço sem carregar arquivos de projeto e sem executar scripts automaticamente, use:
-
-```js
-import { Wexel } from "wexel";
-const engine = await Wexel.loadOnly({ coreBytes });
-```
-
-Nesse modo, o core WebAssembly e os componentes pré-instalados são carregados, o filesystem começa vazio, e chamadas de execução retornam apenas o estado de carregamento. O serviço consumidor pode guardar a instância e decidir posteriormente se deseja habilitar execução e permissões.
-
-## Runtime Deno/WebAssembly
-
-O Wexel 3.0 expõe o comando virtual `deno` dentro do shell. Ele lê scripts exclusivamente do filesystem virtual do Wexel e encaminha a execução ao runtime Deno compatível com WebAssembly registrado na criação do runtime. Não usa `spawn`, o binário Deno do host nem diretórios temporários.
-
-```ts
 import { DenoWasmRuntime, Wexel } from "wexel";
 
 const denoRuntime = await DenoWasmRuntime.instantiate(denoWasm);
+
 const runtime = await Wexel.create({
   denoRuntime,
 });
-runtime.fs.write("/app.ts", "console.log('executado pelo Deno')");
+
+runtime.fs.write(
+  "/app.ts",
+  "console.log('executado pelo Deno');",
+);
+
 await runtime.shell.exec("deno run /app.ts");
-```
 
-`DenoWasmRuntime` valida a ABI `30000` e requer os exports `memory`, `deno_abi_version`, `deno_alloc`, `deno_exec` e os exports de buffer para stdout/stderr. Os comandos iniciais são `deno run <arquivo.js|arquivo.ts> [args]`, `deno eval <código>` e `deno --version`. JavaScript e TypeScript são suportados; HTML continua sendo responsabilidade do V9.
+Supported virtual commands include:
 
-## Node Execution e sandboxes de backend
+deno run <file.js|file.ts> [args]
+deno eval <code>
+deno --version
 
-Para serviços Node.js — incluindo Express, Fastify ou um servidor HTTP próprio — importe `NodeExecution` de `wexel/node-execution`. Ele pré-carrega o core e os adaptadores configurados e cria sandboxes isolados com VFS, permissões, quota e instância WASM independentes. Criar uma sandbox não executa scripts.
+The Deno WASM adapter verifies its ABI before execution. The current runtime expects ABI "30000" and the required Deno WebAssembly exports.
 
-```ts
-import { NodeExecution } from "wexel/node-execution";
+HTML execution remains part of the V9 environment rather than the Deno runtime.
 
-const execution = await NodeExecution.create({ coreBytes, denoRuntime, nativeExtensions });
-const sandbox = await execution.createSandbox({ permissions: { network: false } });
-sandbox.runtime.fs.write("/app.ts", "console.log('isolado')");
-const result = await sandbox.runtime.shell.exec("deno run /app.ts");
-execution.destroySandbox(sandbox.id);
-```
+Virtual Filesystem
 
-Configure `python` para o adapter CPython/WASI, `busyBox` para disponibilizar `bash`, e `nativeCliBytes` ou `nativeExtensions` para módulos C, C++ e Rust. Cada executor é carregado sem executar código do usuário; ele só é chamado por uma operação explícita da sandbox.
+Wexel provides a Linux-like virtual filesystem.
 
-### Filesystem Linux-like
+A runtime starts with directories such as:
 
-Cada runtime começa em um filesystem virtual no formato Linux, com `/bin`, `/home`, `/tmp`, `/usr`, `/var` e `/site-packages`. O runtime comum inicia em `/home/wexel`; cada sandbox criada por `NodeExecution` recebe, por padrão, seu próprio home em `/home/<id-da-sandbox>`. O shell entende `~` como o home atual, sem acessar o filesystem do host.
+/bin
+/home
+/tmp
+/usr
+/var
+/site-packages
 
-```ts
-const runtime = await Wexel.create({ coreBytes });
-await runtime.shell.exec("pwd");          // /home/wexel
+The default home directory is:
+
+/home/wexel
+
+The "~" shell alias resolves to the active runtime home.
+
+const runtime = await Wexel.create({
+  coreBytes,
+});
+
+await runtime.shell.exec("pwd");
 await runtime.shell.exec("touch ~/app.ts");
 await runtime.shell.exec("cd ~");
-```
 
-## Web Pink: internet controlada e microrede
+The filesystem is virtual. Operations against these paths do not automatically access the host filesystem.
 
-`WebPink` é o gateway entre as sandboxes e a rede real do host. Ele não entrega acesso direto ao host: cada sandbox recebe um cliente virtual com lista de hosts permitidos, timeout e limite de resposta. O mesmo cliente é usado por `curl` e `pip`, e também permite mensagens privadas entre sandboxes.
+Storage quotas
 
-```ts
+Wexel supports logical storage quotas for runtime filesystems.
+
+The quota controls the amount of virtual filesystem storage available to a runtime or sandbox. It should not be interpreted as a reservation of physical RAM or disk on the host.
+
+NodeExecution
+
+"NodeExecution" is the backend orchestration layer introduced in Wexel 3.0.
+
+It is designed for Node.js applications such as:
+
+- Express applications
+- Fastify applications
+- HTTP APIs
+- backend services
+- custom Node.js servers
+
+Import it through:
+
+import { NodeExecution } from "wexel/node-execution";
+
+Create an execution manager:
+
 const execution = await NodeExecution.create({
   coreBytes,
-  webPink: { allowHosts: ["api.example.com"], requestTimeoutMs: 10_000 },
+  denoRuntime,
 });
-const api = await execution.createSandbox({ permissions: { network: true } });
-const worker = await execution.createSandbox({ webPink: { allowInternal: true } });
 
-api.webPink!.send(worker.id, { type: "process-job", id: "42" });
-const message = worker.webPink!.receive()[0];
-```
+Create an isolated sandbox:
 
-## Documentação de uso
+const sandbox = await execution.createSandbox({
+  permissions: {
+    network: false,
+  },
+});
 
-Consulte o [help.md](help.md) para instalação, exemplos de código e comandos do Wexel 2.0.
+sandbox.runtime.fs.write(
+  "/app.ts",
+  "console.log('isolated runtime');",
+);
 
-## Wexel 2.0: Wexel Assembly, V9 e terminal
+const result = await sandbox.runtime.shell.exec(
+  "deno run /app.ts",
+);
 
-A linha 2.0 mantém a base de execução da 1.0, mas define uma ABI mais explícita no Wexel Assembly. O core exporta `heap_mark`, `heap_reset`, `memory_limit_pages`, `runtime_version` e `yield`, permitindo que operações longas e módulos cooperativos controlem seu ciclo de vida sem criar subprocessos implícitos.
+console.log(result);
 
-A quota do filesystem da versão 2.0 é de 5 GiB. Ela é independente da memória linear WebAssembly: o core usa atualmente um limite linear compatível de 2 GiB, com crescimento sob demanda, porque engines WASM não aceitam um limite máximo arbitrário de 5 GiB em todos os ambientes. Essa distinção evita reservar RAM ou fazer o módulo falhar na inicialização.
+A sandbox contains its own:
 
-O V9 é a camada de apresentação web. Ele cria documentos HTML/CSS e os renderiza usando o motor nativo do navegador. Ele não interpreta JavaScript. JavaScript e TypeScript continuam pertencendo ao runtime Deno, que deve ser integrado como um módulo separado. O terminal Linux-like também é uma camada de comandos controlados sobre o Wexel Assembly, não uma promessa de que o WebAssembly possui um kernel Linux.
+- Wexel runtime
+- virtual filesystem
+- home directory
+- permissions
+- storage quota
+- WebAssembly instance
+- optional WebPink client
+
+Creating a sandbox only initializes its execution environment. User code is not automatically executed.
+
+Sandbox lifecycle
+
+const sandbox = await execution.createSandbox();
+
+execution.getSandbox(sandbox.id);
+
+execution.listSandboxes();
+
+execution.destroySandbox(sandbox.id);
+
+await execution.dispose();
+
+By default, a sandbox receives a home directory based on its identifier:
+
+/home/<sandbox-id>
+
+WebPink
+
+WebPink is Wexel's controlled network gateway.
+
+Instead of giving a sandbox unrestricted access to the host network, WebPink provides a controlled network layer with policies such as:
+
+- allowed hosts
+- request timeout
+- response-size limits
+- sandbox-specific network policies
+- internal sandbox messaging
+
+Example:
+
+const execution = await NodeExecution.create({
+  coreBytes,
+  webPink: {
+    allowHosts: ["api.example.com"],
+    requestTimeoutMs: 10_000,
+  },
+});
+
+const sandbox = await execution.createSandbox({
+  permissions: {
+    network: true,
+  },
+});
+
+WebPink can also provide communication between sandboxes:
+
+const api = await execution.createSandbox({
+  permissions: {
+    network: true,
+  },
+});
+
+const worker = await execution.createSandbox({
+  webPink: {
+    allowInternal: true,
+  },
+});
+
+api.webPink?.send(worker.id, {
+  type: "process-job",
+  id: "42",
+});
+
+const messages = worker.webPink?.receive();
+
+This makes WebPink suitable for controlled micro-network patterns between isolated execution environments.
+
+CPython and WASI
+
+Wexel includes a CPython WASI integration for Node environments.
+
+The Node adapter can execute CPython WebAssembly through Wasmtime while connecting the Python runtime to Wexel's virtual filesystem.
+
+Example:
+
+import { createWasiPythonRunner } from "wexel/node";
+
+const runPython = createWasiPythonRunner({
+  pythonWasm: "/path/to/python.wasm",
+  pythonRoot: "/path/to/python-root",
+  wasmtime: "wasmtime",
+  fs: runtime.fs,
+});
+
+console.log(
+  await runPython("print(2 + 40)"),
+);
+
+The Wexel 3.0 changes also improve temporary-directory cleanup and process shutdown handling in the Node CPython adapter.
+
+Python Packages
+
+Wexel provides Python package installation through the virtual filesystem.
+
+The package layer can:
+
+1. Query package metadata.
+2. Select compatible universal or WebAssembly wheels.
+3. Verify SHA-256 hashes.
+4. Extract package files.
+5. Install them into the virtual filesystem.
+
+Packages are installed into:
+
+/site-packages
+
+The installer does not execute arbitrary "setup.py" installation logic.
+
+BusyBox
+
+Wexel supports the real Emscripten-built BusyBox WebAssembly runtime.
+
+BusyBox can provide shell functionality inside the Wexel execution environment.
+
+The runner accepts either a URL or a WebAssembly byte source:
+
+const busybox = await createBusyBoxRunner(
+  BusyBoxModule,
+  wasmBytes,
+);
+
+const result = await busybox.run({
+  args: [
+    "busybox",
+    "echo",
+    "Hello from BusyBox",
+  ],
+});
+
+console.log(result);
+
+The byte-based form is useful for Node environments where loading a local "file:" URL through "fetch()" is undesirable.
+
+Native C and C++
+
+Wexel includes native source compilation helpers for C and C++.
+
+Compilation is performed through Emscripten:
+
+C   -> emcc
+C++ -> em++
+
+Example:
+
+import { compileNativeSource } from "wexel";
+
+await compileNativeSource({
+  source: "/tmp/example.cpp",
+  output: "/tmp/example.wasm",
+  flags: [
+    "-Wl,--export=wexel_add",
+  ],
+});
+
+The compiler helper detects C and C++ source extensions and produces WebAssembly output suitable for subsequent execution.
+
+Emscripten must be available in the environment when native compilation is requested.
+
+RustV
+
+RustV provides a small adapter for precompiled Rust WebAssembly modules.
+
+It verifies the module ABI and exposes the exported RustV functions.
+
+import { RustV } from "wexel";
+
+const rust = await RustV.load({
+  source: rustWasm,
+});
+
+console.log(rust.version());
+console.log(rust.add(2, 40));
+
+RustV is an execution adapter for compiled Rust WebAssembly modules. It is not a Rust compiler.
+
+Native WebAssembly Extensions
+
+Wexel can load native WebAssembly extensions through extension manifests and binary sources.
+
+Backend sandboxes can receive configured extensions through "NodeExecution":
+
+const execution = await NodeExecution.create({
+  coreBytes,
+  nativeExtensions: [
+    {
+      manifest,
+      source: extensionWasm,
+    },
+  ],
+});
+
+This allows applications to package specialized WebAssembly capabilities alongside their sandbox configuration.
+
+V9
+
+V9 is Wexel's HTML/CSS execution environment.
+
+It is responsible for rendering web documents inside the Wexel environment while JavaScript and TypeScript execution can be delegated to the Deno WASM runtime.
+
+The separation is intentional:
+
+HTML/CSS
+   │
+   ▼
+  V9
+
+JavaScript/TypeScript
+   │
+   ▼
+Deno WASM
+
+Load-only Mode
+
+Wexel supports a load-only runtime mode.
+
+In this mode, the WebAssembly core and configured components can be loaded without immediately enabling normal execution.
+
+This can be useful for services that want to:
+
+- initialize runtime state first
+- keep execution disabled until explicitly requested
+- control when permissions are enabled
+- create managed runtime pools
+
+Examples
+
+The repository currently contains the following examples:
+
+examples/
+├── 01-load-only.mjs
+├── 02-wasm-module.mjs
+├── 03-cpython-adapter.mjs
+├── 04-busybox.mjs
+├── 05-cpython-real-node.mjs
+├── 06-pip-native-install.mjs
+├── 07-loader-only.mjs
+├── 08-compile-cpp.mjs
+└── 09-rustv.mjs
+
+These examples cover runtime loading, WebAssembly modules, Python, BusyBox, native compilation and RustV.
+
+API Surface
+
+The main package exports the core runtime and execution features:
+
+import {
+  Wexel,
+  DenoWasmRuntime,
+  createBusyBoxRunner,
+  compileNativeSource,
+  RustV,
+} from "wexel";
+
+Backend execution is available through the dedicated export:
+
+import { NodeExecution } from "wexel/node-execution";
+
+BusyBox can also be imported through:
+
+import { createBusyBoxRunner } from "wexel/busybox";
+
+Node CPython support is exposed through:
+
+import { createWasiPythonRunner } from "wexel/node";
+
+Development
+
+Wexel is a pnpm workspace.
+
+Install the repository dependencies with:
+
+pnpm install
+
+Root scripts
+
+The root "package.json" defines these scripts:
+
+pnpm build
+pnpm test
+pnpm typecheck
+pnpm clean
+pnpm build:busybox
+
+Their actual definitions are:
+
+{
+  "build": "pnpm --filter @wexel/core build && node scripts/build-core.mjs && pnpm --filter wexel build && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm && node scripts/check-browser-budget.mjs",
+  "test": "pnpm --filter wexel test",
+  "typecheck": "pnpm --filter wexel typecheck",
+  "clean": "rm -rf packages/*/dist",
+  "build:busybox": "bash scripts/build-busybox.sh"
+}
+
+Wexel package scripts
+
+Inside "packages/wexel", the package defines:
+
+pnpm --filter wexel build
+pnpm --filter wexel test
+pnpm --filter wexel typecheck
+
+The actual package scripts are:
+
+{
+  "build": "tsc -p tsconfig.json",
+  "test": "vitest run",
+  "typecheck": "tsc -p tsconfig.json --noEmit"
+}
+
+Build
+
+Build the complete project with:
+
+pnpm build
+
+This builds the core package, generates the Wexel core WebAssembly artifact, builds the main package, copies the generated core into the package assets and runs the browser budget check.
+
+Tests
+
+Run the Wexel test suite with:
+
+pnpm test
+
+Or directly:
+
+pnpm --filter wexel test
+
+The Wexel 3.0 PR used the package test suite to cover core runtime creation, shell behavior, VFS home handling, Deno routing, NodeExecution lifecycle and WebPink behavior.
+
+Type checking
+
+pnpm typecheck
+
+Clean
+
+pnpm clean
+
+BusyBox build
+
+pnpm build:busybox
+
+Project Structure
+
+wexel/
+├── packages/
+│   ├── wexel/
+│   │   ├── src/
+│   │   ├── test/
+│   │   ├── assets/
+│   │   └── package.json
+│   │
+│   └── wexel-core/
+│
+├── examples/
+├── native/
+├── scripts/
+├── package.json
+└── pnpm-workspace.yaml
+
+Important runtime components include:
+
+packages/wexel/src/
+├── index.ts
+├── deno-wasm.ts
+├── node-execution.ts
+├── node-cpython.ts
+├── busybox.ts
+├── web-pink.ts
+├── native-compiler.ts
+├── native-extensions.ts
+└── rustv.ts
+
+Security Model
+
+Wexel provides controlled execution primitives, but it should not be treated as a complete kernel-level security boundary.
+
+Some adapters interact with host tooling such as Wasmtime or Emscripten. Applications executing untrusted code should therefore add an appropriate host-level isolation layer around Wexel.
+
+Wexel's permissions, filesystem quotas, virtual filesystem and WebPink policies are execution controls inside the Wexel architecture. They do not automatically replace operating-system isolation.
+
+Version
+
+Current package version:
+
+3.0.0
+
+Wexel 3.0 introduced the Deno WASM runtime, NodeExecution sandbox manager, WebPink networking layer, Linux-like VFS improvements and the associated package/export updates.
+
+License
+
+See the repository license for the terms applicable to Wexel.
