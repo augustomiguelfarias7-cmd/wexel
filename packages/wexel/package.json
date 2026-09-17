@@ -1,6 +1,6 @@
 {
   "name": "wexel",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,6 +12,10 @@
     "./node": {
       "types": "./dist/node-cpython.d.ts",
       "import": "./dist/node-cpython.js"
+    },
+    "./node-execution": {
+      "types": "./dist/node-execution.d.ts",
+      "import": "./dist/node-execution.js"
     },
     "./busybox": {
       "types": "./dist/busybox.d.ts",

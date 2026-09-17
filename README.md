@@ -103,6 +103,66 @@ const engine = await Wexel.loadOnly({ coreBytes });
 
 Nesse modo, o core WebAssembly e os componentes pré-instalados são carregados, o filesystem começa vazio, e chamadas de execução retornam apenas o estado de carregamento. O serviço consumidor pode guardar a instância e decidir posteriormente se deseja habilitar execução e permissões.
 
+## Runtime Deno/WebAssembly
+
+O Wexel 3.0 expõe o comando virtual `deno` dentro do shell. Ele lê scripts exclusivamente do filesystem virtual do Wexel e encaminha a execução ao runtime Deno compatível com WebAssembly registrado na criação do runtime. Não usa `spawn`, o binário Deno do host nem diretórios temporários.
+
+```ts
+import { DenoWasmRuntime, Wexel } from "wexel";
+
+const denoRuntime = await DenoWasmRuntime.instantiate(denoWasm);
+const runtime = await Wexel.create({
+  denoRuntime,
+});
+runtime.fs.write("/app.ts", "console.log('executado pelo Deno')");
+await runtime.shell.exec("deno run /app.ts");
+```
+
+`DenoWasmRuntime` valida a ABI `30000` e requer os exports `memory`, `deno_abi_version`, `deno_alloc`, `deno_exec` e os exports de buffer para stdout/stderr. Os comandos iniciais são `deno run <arquivo.js|arquivo.ts> [args]`, `deno eval <código>` e `deno --version`. JavaScript e TypeScript são suportados; HTML continua sendo responsabilidade do V9.
+
+## Node Execution e sandboxes de backend
+
+Para serviços Node.js — incluindo Express, Fastify ou um servidor HTTP próprio — importe `NodeExecution` de `wexel/node-execution`. Ele pré-carrega o core e os adaptadores configurados e cria sandboxes isolados com VFS, permissões, quota e instância WASM independentes. Criar uma sandbox não executa scripts.
+
+```ts
+import { NodeExecution } from "wexel/node-execution";
+
+const execution = await NodeExecution.create({ coreBytes, denoRuntime, nativeExtensions });
+const sandbox = await execution.createSandbox({ permissions: { network: false } });
+sandbox.runtime.fs.write("/app.ts", "console.log('isolado')");
+const result = await sandbox.runtime.shell.exec("deno run /app.ts");
+execution.destroySandbox(sandbox.id);
+```
+
+Configure `python` para o adapter CPython/WASI, `busyBox` para disponibilizar `bash`, e `nativeCliBytes` ou `nativeExtensions` para módulos C, C++ e Rust. Cada executor é carregado sem executar código do usuário; ele só é chamado por uma operação explícita da sandbox.
+
+### Filesystem Linux-like
+
+Cada runtime começa em um filesystem virtual no formato Linux, com `/bin`, `/home`, `/tmp`, `/usr`, `/var` e `/site-packages`. O runtime comum inicia em `/home/wexel`; cada sandbox criada por `NodeExecution` recebe, por padrão, seu próprio home em `/home/<id-da-sandbox>`. O shell entende `~` como o home atual, sem acessar o filesystem do host.
+
+```ts
+const runtime = await Wexel.create({ coreBytes });
+await runtime.shell.exec("pwd");          // /home/wexel
+await runtime.shell.exec("touch ~/app.ts");
+await runtime.shell.exec("cd ~");
+```
+
+## Web Pink: internet controlada e microrede
+
+`WebPink` é o gateway entre as sandboxes e a rede real do host. Ele não entrega acesso direto ao host: cada sandbox recebe um cliente virtual com lista de hosts permitidos, timeout e limite de resposta. O mesmo cliente é usado por `curl` e `pip`, e também permite mensagens privadas entre sandboxes.
+
+```ts
+const execution = await NodeExecution.create({
+  coreBytes,
+  webPink: { allowHosts: ["api.example.com"], requestTimeoutMs: 10_000 },
+});
+const api = await execution.createSandbox({ permissions: { network: true } });
+const worker = await execution.createSandbox({ webPink: { allowInternal: true } });
+
+api.webPink!.send(worker.id, { type: "process-job", id: "42" });
+const message = worker.webPink!.receive()[0];
+```
+
 ## Documentação de uso
 
 Consulte o [help.md](help.md) para instalação, exemplos de código e comandos do Wexel 2.0.

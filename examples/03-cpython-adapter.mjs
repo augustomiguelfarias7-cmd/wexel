@@ -5,7 +5,7 @@ const coreBytes = await readFile(new URL("../packages/wexel/assets/core.wasm", i
 const runtime = await Wexel.create({
   coreBytes,
   pythonRunner: async (code, args) => {
-    throw new Error(`CPython WASM não configurado; script solicitado: ${code.length} bytes, args=${args.length}`);
+    return { stdout: "", stderr: `CPython WASM não configurado; script solicitado: ${code.length} bytes, args=${args.length}\n`, exitCode: 2 };
   },
 });
 console.log(await runtime.exec({ language: "python", code: "print('Olá do CPython')" }));
