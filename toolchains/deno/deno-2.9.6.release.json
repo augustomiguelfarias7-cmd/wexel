@@ -1,0 +1,250 @@
+{
+  "runtime": "deno",
+  "version": "2.9.6",
+  "source": {
+    "repository": "https://github.com/denoland/deno.git",
+    "tag": "v2.9.6",
+    "commit": "e518fbd66dda5debcbdefc0beb0b3756b37b64fa"
+  },
+  "release": {
+    "url": "https://github.com/denoland/deno/releases/tag/v2.9.6",
+    "assets": [
+      {
+        "name": "deno-aarch64-apple-darwin.from-2.9.5.bsdiff",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-apple-darwin.from-2.9.5.bsdiff"
+      },
+      {
+        "name": "deno-aarch64-apple-darwin.from-2.9.5.bsdiff.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-apple-darwin.from-2.9.5.bsdiff.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-apple-darwin.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-apple-darwin.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-apple-darwin.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-apple-darwin.zip"
+      },
+      {
+        "name": "deno-aarch64-apple-darwin.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-apple-darwin.zip.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-pc-windows-msvc.from-2.9.5.bsdiff",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-pc-windows-msvc.from-2.9.5.bsdiff"
+      },
+      {
+        "name": "deno-aarch64-pc-windows-msvc.from-2.9.5.bsdiff.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-pc-windows-msvc.from-2.9.5.bsdiff.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-pc-windows-msvc.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-pc-windows-msvc.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-pc-windows-msvc.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-pc-windows-msvc.zip"
+      },
+      {
+        "name": "deno-aarch64-pc-windows-msvc.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-pc-windows-msvc.zip.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-unknown-linux-gnu.from-2.9.5.bsdiff",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-unknown-linux-gnu.from-2.9.5.bsdiff"
+      },
+      {
+        "name": "deno-aarch64-unknown-linux-gnu.from-2.9.5.bsdiff.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-unknown-linux-gnu.from-2.9.5.bsdiff.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-unknown-linux-gnu.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-unknown-linux-gnu.sha256sum"
+      },
+      {
+        "name": "deno-aarch64-unknown-linux-gnu.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-unknown-linux-gnu.zip"
+      },
+      {
+        "name": "deno-aarch64-unknown-linux-gnu.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-aarch64-unknown-linux-gnu.zip.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-apple-darwin.from-2.9.5.bsdiff",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-apple-darwin.from-2.9.5.bsdiff"
+      },
+      {
+        "name": "deno-x86_64-apple-darwin.from-2.9.5.bsdiff.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-apple-darwin.from-2.9.5.bsdiff.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-apple-darwin.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-apple-darwin.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-apple-darwin.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-apple-darwin.zip"
+      },
+      {
+        "name": "deno-x86_64-apple-darwin.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-apple-darwin.zip.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-pc-windows-msvc.from-2.9.5.bsdiff",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.from-2.9.5.bsdiff"
+      },
+      {
+        "name": "deno-x86_64-pc-windows-msvc.from-2.9.5.bsdiff.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.from-2.9.5.bsdiff.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-pc-windows-msvc.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-pc-windows-msvc.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.zip"
+      },
+      {
+        "name": "deno-x86_64-pc-windows-msvc.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.zip.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-unknown-linux-gnu.from-2.9.5.bsdiff",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.from-2.9.5.bsdiff"
+      },
+      {
+        "name": "deno-x86_64-unknown-linux-gnu.from-2.9.5.bsdiff.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.from-2.9.5.bsdiff.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-unknown-linux-gnu.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.sha256sum"
+      },
+      {
+        "name": "deno-x86_64-unknown-linux-gnu.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.zip"
+      },
+      {
+        "name": "deno-x86_64-unknown-linux-gnu.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.zip.sha256sum"
+      },
+      {
+        "name": "denort-aarch64-apple-darwin.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-aarch64-apple-darwin.zip"
+      },
+      {
+        "name": "denort-aarch64-apple-darwin.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-aarch64-apple-darwin.zip.sha256sum"
+      },
+      {
+        "name": "denort-aarch64-pc-windows-msvc.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-aarch64-pc-windows-msvc.zip"
+      },
+      {
+        "name": "denort-aarch64-pc-windows-msvc.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-aarch64-pc-windows-msvc.zip.sha256sum"
+      },
+      {
+        "name": "denort-aarch64-unknown-linux-gnu.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-aarch64-unknown-linux-gnu.zip"
+      },
+      {
+        "name": "denort-aarch64-unknown-linux-gnu.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-aarch64-unknown-linux-gnu.zip.sha256sum"
+      },
+      {
+        "name": "denort-x86_64-apple-darwin.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-x86_64-apple-darwin.zip"
+      },
+      {
+        "name": "denort-x86_64-apple-darwin.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-x86_64-apple-darwin.zip.sha256sum"
+      },
+      {
+        "name": "denort-x86_64-pc-windows-msvc.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-x86_64-pc-windows-msvc.zip"
+      },
+      {
+        "name": "denort-x86_64-pc-windows-msvc.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-x86_64-pc-windows-msvc.zip.sha256sum"
+      },
+      {
+        "name": "denort-x86_64-unknown-linux-gnu.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-x86_64-unknown-linux-gnu.zip"
+      },
+      {
+        "name": "denort-x86_64-unknown-linux-gnu.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/denort-x86_64-unknown-linux-gnu.zip.sha256sum"
+      },
+      {
+        "name": "deno_src.tar.gz",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno_src.tar.gz"
+      },
+      {
+        "name": "lib.deno.d.ts",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/lib.deno.d.ts"
+      },
+      {
+        "name": "libdenort-aarch64-apple-darwin.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-aarch64-apple-darwin.zip"
+      },
+      {
+        "name": "libdenort-aarch64-apple-darwin.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-aarch64-apple-darwin.zip.sha256sum"
+      },
+      {
+        "name": "libdenort-aarch64-pc-windows-msvc.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-aarch64-pc-windows-msvc.zip"
+      },
+      {
+        "name": "libdenort-aarch64-pc-windows-msvc.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-aarch64-pc-windows-msvc.zip.sha256sum"
+      },
+      {
+        "name": "libdenort-aarch64-unknown-linux-gnu.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-aarch64-unknown-linux-gnu.zip"
+      },
+      {
+        "name": "libdenort-aarch64-unknown-linux-gnu.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-aarch64-unknown-linux-gnu.zip.sha256sum"
+      },
+      {
+        "name": "libdenort-x86_64-apple-darwin.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-x86_64-apple-darwin.zip"
+      },
+      {
+        "name": "libdenort-x86_64-apple-darwin.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-x86_64-apple-darwin.zip.sha256sum"
+      },
+      {
+        "name": "libdenort-x86_64-pc-windows-msvc.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-x86_64-pc-windows-msvc.zip"
+      },
+      {
+        "name": "libdenort-x86_64-pc-windows-msvc.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-x86_64-pc-windows-msvc.zip.sha256sum"
+      },
+      {
+        "name": "libdenort-x86_64-unknown-linux-gnu.zip",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-x86_64-unknown-linux-gnu.zip"
+      },
+      {
+        "name": "libdenort-x86_64-unknown-linux-gnu.zip.sha256sum",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.6/libdenort-x86_64-unknown-linux-gnu.zip.sha256sum"
+      }
+    ],
+    "wasmAssets": []
+  },
+  "result": "no-official-deno-wasm-artifact",
+  "sourceWasmReferences": [
+    ".github/workflows/ci.ts:443:  run: \"rustup target add wasm32-unknown-unknown\",",
+    ".github/workflows/ci.ts:1597:            \"cargo check --target wasm32-unknown-unknown -p deno_resolver && cargo check --target wasm32-unknown-unknown -p deno_resolver --features graph && cargo check --target wasm32-unknown-unknown -p deno_resolver --features graph --features deno_ast\",",
+    ".github/workflows/ci.ts:1602:            \"cargo check --target wasm32-unknown-unknown -p deno_npm_installer\",",
+    ".github/workflows/ci.ts:1611:            \"cargo check --target wasm32-unknown-unknown --all-features -p deno_config\",",
+    ".github/workflows/ci.generated.yml:5724:        run: rustup target add wasm32-unknown-unknown",
+    ".github/workflows/ci.generated.yml:5727:        run: cargo check --target wasm32-unknown-unknown -p deno_resolver && cargo check --target wasm32-unknown-unknown -p deno_resolver --features graph && cargo check --target wasm32-unknown-unknown -p deno_resolver --features graph --features deno_ast",
+    ".github/workflows/ci.generated.yml:5730:        run: cargo check --target wasm32-unknown-unknown -p deno_npm_installer",
+    ".github/workflows/ci.generated.yml:5738:          cargo check --target wasm32-unknown-unknown --all-features -p deno_config"
+  ]
+}

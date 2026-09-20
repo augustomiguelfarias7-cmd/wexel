@@ -1,0 +1,26 @@
+{
+  "runtime": "deno",
+  "version": "2.9.6",
+  "source": {
+    "repository": "https://github.com/denoland/deno.git",
+    "tag": "v2.9.6",
+    "commit": "e518fbd66dda5debcbdefc0beb0b3756b37b64fa"
+  },
+  "officialRelease": {
+    "url": "https://github.com/denoland/deno/releases/tag/v2.9.6",
+    "publishedArtifactFamilies": [
+      "deno-<arch>-<platform>.zip",
+      "denort-<arch>-<platform>.zip",
+      "libdenort-<arch>-<platform>.zip",
+      "deno_src.tar.gz"
+    ],
+    "wasmArtifact": null
+  },
+  "wexelStatus": {
+    "backendNativeAdapter": "packages/wexel/src/deno-host.ts",
+    "wasmRuntime": "unavailable-from-upstream",
+    "reason": "Deno CLI/runtime completo depende de V8 e das APIs nativas do host; o repositório upstream só usa wasm32-unknown-unknown para checks de crates auxiliares, não publica nem constrói um Deno CLI WASM.",
+    "doNotTreatAsDenoWasm": true
+  }
+}
+
