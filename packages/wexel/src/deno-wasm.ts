@@ -20,6 +20,11 @@ import {
   runDenoNodeSandbox,
   type DenoNodeSandboxOptions,
 } from "./deno-node-sandbox.js";
+import {
+  runDenoNative,
+  resolvedenoBin,
+  type DenoNativeOptions,
+} from "./deno-native-adapter.js";
 import type { NetworkFetcher } from "./deno-net-bridge.js";
 
 // Mantida para compatibilidade com código que importa DENO_WASM_ABI_VERSION
@@ -41,6 +46,11 @@ export interface DenoRuntimeOptions {
   fetcher?: NetworkFetcher;
   /** Timeout em ms por execução. Padrão: 30 000. */
   timeoutMs?: number;
+  /**
+   * Caminho explícito para o binário Deno.
+   * Se omitido, resolvido automaticamente: DENO_BIN → assets/deno/deno → PATH.
+   */
+  denoBin?: string;
   /**
    * URL do script do Worker (apenas browser).
    * Se omitido, um Blob URL é gerado automaticamente.
@@ -70,20 +80,22 @@ function detectTarget(): "browser" | "node" {
  *   await deno.run(code, "typescript");
  */
 export class DenoRuntime {
-  private readonly target:   "browser" | "node";
-  private readonly fs:       WexelFileSystem;
-  private readonly fetcher:  NetworkFetcher;
-  private readonly net:      boolean;
-  private readonly timeout:  number;
+  private readonly target:    "browser" | "node";
+  private readonly fs:        WexelFileSystem;
+  private readonly fetcher:   NetworkFetcher;
+  private readonly net:       boolean;
+  private readonly timeout:   number;
+  private readonly denoBin?:  string;
   private readonly workerUrl: string | URL;
   private _blobUrl?: string;
 
   private constructor(opts: DenoRuntimeOptions) {
-    this.target  = (opts.target === "auto" || !opts.target) ? detectTarget() : opts.target;
-    this.fs      = opts.fs;
-    this.fetcher = opts.fetcher ?? fetch;
-    this.net     = opts.networkAllowed ?? false;
-    this.timeout = opts.timeoutMs ?? 30_000;
+    this.target   = (opts.target === "auto" || !opts.target) ? detectTarget() : opts.target;
+    this.fs       = opts.fs;
+    this.fetcher  = opts.fetcher ?? fetch;
+    this.net      = opts.networkAllowed ?? false;
+    this.timeout  = opts.timeoutMs ?? 30_000;
+    this.denoBin  = opts.denoBin;
     this.workerUrl = opts.workerScriptUrl ?? "";
   }
 
@@ -150,12 +162,24 @@ export class DenoRuntime {
     language: "javascript" | "typescript",
     args:     string[],
   ): Promise<ExecResult> {
-    const opts: DenoNodeSandboxOptions = {
-      fetcher:         this.fetcher,
-      networkAllowed:  this.net,
-      timeoutMs:       this.timeout,
-    };
-    return runDenoNodeSandbox(this.fs, opts, { code, language, args });
+    // Tenta o binário nativo primeiro (deno.gz → deno)
+    try {
+      const bin = await resolvedenoBin(this.denoBin);
+      const nativeOpts: DenoNativeOptions = {
+        denoBin:         bin,
+        networkAllowed:  this.net,
+        timeoutMs:       this.timeout,
+      };
+      return await runDenoNative(this.fs, nativeOpts, { code, language, args });
+    } catch {
+      // Binário não disponível (ex: WASM-only environment) — shim JS
+      const shimOpts: DenoNodeSandboxOptions = {
+        fetcher:         this.fetcher,
+        networkAllowed:  this.net,
+        timeoutMs:       this.timeout,
+      };
+      return runDenoNodeSandbox(this.fs, shimOpts, { code, language, args });
+    }
   }
 
   private ensureBlobUrl(): string {

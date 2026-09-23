@@ -23,6 +23,7 @@ import {
   checkBrowserSupport,
 } from "./deno-service-worker.js";
 import { createVfsBridgeChannel, serveVfsBridge } from "./deno-vfs-bridge.js";
+import { runDenoNative, resolvedenoBin } from "./deno-native-adapter.js";
 import { runDenoNodeSandbox } from "./deno-node-sandbox.js";
 
 export interface DenoBrowserHostOptions {
@@ -102,15 +103,22 @@ export class DenoBrowserHost {
     language: "javascript" | "typescript",
     args:     string[] = [],
   ): Promise<ExecResult> {
-    return runDenoNodeSandbox(
-      this.fs,
-      {
-        networkAllowed: this.opts.networkAllowed,
-        fetcher:        fetch, // fetch nativo do browser
-        timeoutMs:      this.opts.timeoutMs,
-      },
-      { code, language, args },
-    );
+    // Tenta binário nativo primeiro (mesmo no browser quando há acesso ao Node via worker)
+    try {
+      const bin = await resolvedenoBin();
+      return await runDenoNative(
+        this.fs,
+        { denoBin: bin, networkAllowed: this.opts.networkAllowed, timeoutMs: this.opts.timeoutMs },
+        { code, language, args },
+      );
+    } catch {
+      // Fallback: shim JS via worker_threads (ambiente sem acesso ao binário)
+      return runDenoNodeSandbox(
+        this.fs,
+        { networkAllowed: this.opts.networkAllowed, fetcher: fetch, timeoutMs: this.opts.timeoutMs },
+        { code, language, args },
+      );
+    }
   }
 
   /** Libera recursos (para o serviço VFS e desregistra o SW). */

@@ -493,7 +493,18 @@ export class WexelRuntime {
   async deno(args: string[]): Promise<ExecResult> {
     const [command, target, ...scriptArgs] = args;
     if (command === "--version" || command === "version") {
-      return { stdout: "deno 2.0.0-wexel (release, wasm32)\nv8 12.0.0\ntypescript 5.0.0\n", stderr: "", exitCode: 0 };
+      // Lê versão real do manifesto se disponível
+      try {
+        const manifest = JSON.parse(this.fs.exists("/wexel-deno-manifest.json")
+          ? this.fs.readText("/wexel-deno-manifest.json")
+          : "{}") as { denoVersion?: string; v8Version?: string; typescriptVersion?: string };
+        const dv = manifest.denoVersion ?? "deno 2.3.5 (stable, release, x86_64)";
+        const v8 = manifest.v8Version    ?? "v8 13.7.152.6-rusty";
+        const ts = manifest.typescriptVersion ?? "typescript 5.8.3";
+        return { stdout: `${dv}\n${v8}\n${ts}\n`, stderr: "", exitCode: 0 };
+      } catch {
+        return { stdout: "deno 2.3.5 (stable, release, x86_64)\nv8 13.7.152.6-rusty\ntypescript 5.8.3\n", stderr: "", exitCode: 0 };
+      }
     }
     if (command === "eval" && target !== undefined) return this.exec({ language: "javascript", code: target, args: scriptArgs });
     if (command === "run" && target) {
