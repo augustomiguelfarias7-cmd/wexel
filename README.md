@@ -16,8 +16,8 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 ## Highlights
 
 - WebAssembly-first execution
-- Deno 2.3.5 nativo — roda de verdade no browser e no Node.js
-- JavaScript and TypeScript through Deno (real V8, TypeScript nativo)
+- Deno 2.3.5 native
+- JavaScript and TypeScript through Deno (deno native)
 - Linux-like virtual shell with 40+ commands (`ls -la`, `grep`, `find`, `sha256sum`, `df`...)
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
