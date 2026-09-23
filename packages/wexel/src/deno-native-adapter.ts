@@ -47,17 +47,33 @@ export interface DenoNativeExecOptions {
   args?:    string[];
 }
 
-/** Resolve o caminho do binário Deno nas três fontes de busca. */
+/** Resolve o caminho do binário Deno nas três fontes de busca.
+ *  Se encontrar deno.gz mas não deno, descomprime automaticamente. */
 export async function resolvedenoBin(override?: string): Promise<string> {
   if (override) return override;
   if (process.env["DENO_BIN"]) return process.env["DENO_BIN"];
 
-  // assets/deno/deno[.exe]
   const ext    = process.platform === "win32" ? ".exe" : "";
-  const assets = resolve(HERE, "../assets/deno", `deno${ext}`);
+  const binPath = resolve(HERE, "../assets/deno", `deno${ext}`);
+  const gzPath  = resolve(HERE, "../assets/deno", `deno${ext}.gz`);
+
+  // Verifica se o binário já existe
+  try { await readFile(binPath); return binPath; } catch { /* continua */ }
+
+  // Tenta descomprimir deno.gz → deno
   try {
-    await readFile(assets); // só verifica se existe
-    return assets;
+    const { createGunzip } = await import("node:zlib");
+    const { createReadStream, createWriteStream } = await import("node:fs");
+    const { pipeline } = await import("node:stream/promises");
+    await pipeline(
+      createReadStream(gzPath),
+      createGunzip(),
+      createWriteStream(binPath),
+    );
+    // torna executável
+    const { chmod } = await import("node:fs/promises");
+    await chmod(binPath, 0o755);
+    return binPath;
   } catch { /* não disponível — usa PATH */ }
 
   return "deno";

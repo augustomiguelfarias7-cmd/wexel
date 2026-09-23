@@ -1,0 +1,14 @@
+{
+  "runtime": "deno",
+  "version": "2.3.5",
+  "tag": "v2.3.5",
+  "asset": "deno-x86_64-unknown-linux-gnu.zip",
+  "binary": "deno",
+  "denoVersion": "deno 2.3.5 (stable, release, x86_64-unknown-linux-gnu)",
+  "v8Version": "13.7.152.6-rusty",
+  "typescriptVersion": "5.8.3",
+  "downloadUrl": "https://github.com/denoland/deno/releases/download/v2.3.5/deno-x86_64-unknown-linux-gnu.zip",
+  "platform": "x86_64-unknown-linux-gnu",
+  "preparedAt": "2026-09-23T00:00:00.000Z",
+  "note": "Binário nativo Linux x64. Para macOS arm64 e Windows x64, rodar: node scripts/prepare-deno-wasm.mjs"
+}
