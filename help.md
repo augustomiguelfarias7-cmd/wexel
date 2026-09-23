@@ -1,365 +1,502 @@
-# Wexel 2.0 — Referência completa da API
+# Wexel 3.0 — Referência completa da API
 
-O **Wexel 2.0** é um runtime modular baseado no Wexel Assembly, uma camada própria sobre WebAssembly. Ele fornece filesystem virtual, memória WASM, permissões, terminal Linux-like, carregamento de módulos, extensões nativas e adapters para runtimes de linguagem.
-
-Este guia documenta a API pública atual e seus exemplos práticos.
+O **Wexel 3.0** é um runtime modular baseado no Wexel Assembly. Ele fornece filesystem virtual, shell Linux modernizado, Deno nativo (browser + Node.js), Git, curl, gerenciador de pacotes npm/pnpm, CPython, BusyBox, RustV, extensões nativas e sandboxes Node.js isolados.
 
 ## Instalação
 
-Instale a versão 2.0 diretamente do repositório GitHub:
-
 ```bash
-npm install git+https://github.com/augustomiguelfarias7-cmd/wexel.git#2.0
+npm install git+https://github.com/augustomiguelfarias7-cmd/wexel.git
 ```
 
-Durante desenvolvimento, é possível usar a branch principal:
-
-```bash
-npm install git+https://github.com/augustomiguelfarias7-cmd/wexel.git#main
-```
-
-A tag `2.0` é recomendada para builds reproduzíveis.
+---
 
 ## Criar o runtime
 
-A forma principal de inicializar o runtime é `Wexel.create(options)`:
-
-```js
-import { readFile } from "node:fs/promises";
+```ts
 import { Wexel } from "wexel";
 
-const coreBytes = await readFile("./node_modules/wexel/assets/core.wasm");
-
 const runtime = await Wexel.create({
-  coreBytes,
   mode: "run",
   storageQuotaBytes: 5 * 1024 * 1024 * 1024,
   permissions: {
-    storage: true,
-    files: true,
-    modules: true,
-    network: false
-  }
+    network:  false,
+    storage:  true,
+    files:    true,
+    modules:  true,
+  },
 });
 ```
 
 ### Opções de `Wexel.create`
 
-| Opção | Tipo | Função |
+| Opção | Tipo | Descrição |
 |---|---|---|
-| `coreBytes` | `BufferSource` | Core WebAssembly fornecido explicitamente. |
-| `mode` | `"run" \| "load-only"` | Decide se o runtime pode executar código ou apenas carregar componentes. |
-| `storageQuotaBytes` | `number` | Quota lógica da VFS. O padrão é 5 GiB. |
-| `initialMemoryPages` | `number` | Configuração inicial de páginas de memória WASM. |
-| `maxMemoryPages` | `number` | Limite máximo configurável de memória linear. |
-| `permissions` | `WexelPermissions` | Permissões de rede, armazenamento, arquivos e módulos. |
-| `pythonRunner` | função | Adapter para CPython/WASM real. |
-| `denoRunner` | função | Adapter para JavaScript, TypeScript ou HTML. |
-| `pypiIndexUrl` | `string` | Índice JSON compatível com PyPI. |
-| `gitCloneRunner` | função | Implementação de `git clone` conectada ao ambiente. |
-| `nativeCliBytes` | `BufferSource` | Módulo WASM da CLI nativa padrão. |
+| `coreBytes` | `BufferSource` | Core WASM (opcional — carregado automaticamente de assets/). |
+| `mode` | `"run" \| "load-only"` | Modo de execução ou apenas carregamento. |
+| `storageQuotaBytes` | `number` | Quota da VFS. Padrão: 5 GiB. |
+| `permissions` | `WexelPermissions` | Rede, storage, arquivos, módulos. |
+| `homeDirectory` | `string` | Diretório home. Padrão: `/home/wexel`. |
+| `pythonRunner` | função | Adapter CPython/WASM. |
+| `pythonRunnerFactory` | função | Factory que recebe o `fs` e retorna um `pythonRunner`. |
+| `deno` | `DenoRuntime` | Runtime Deno unificado (browser + Node). |
+| `denoRunner` | função | Adapter Deno legado (compatibilidade). |
+| `bashRunner` | função | Adapter para comandos bash externos. |
+| `networkFetch` | `typeof fetch` | Fetcher de rede (padrão: `fetch` global). |
+| `gitToken` | `string` | Token para repositórios privados no `git clone`. |
+| `pypiIndexUrl` | `string` | Índice PyPI alternativo. |
+| `nativeCliBytes` | `BufferSource` | CLI C++ WASM. |
 | `nativeExtensions` | lista | Extensões WASM carregadas na inicialização. |
 
-## Modo `load-only`
+---
 
-Use `Wexel.loadOnly(options)` quando o serviço precisa apenas carregar o motor, sem executar scripts e sem criar arquivos de projeto:
+## DenoRuntime — Deno nativo no browser e no Node
 
-```js
-const runtime = await Wexel.loadOnly({ coreBytes });
+O `DenoRuntime` é o coração do Wexel 3.0. Detecta o ambiente automaticamente e usa o **Deno real** em ambos:
 
-console.log(runtime.mode); // "load-only"
-console.log(runtime.fs.list()); // []
-```
+```ts
+import { DenoRuntime, Wexel } from "wexel";
 
-Nesse modo, chamadas de execução não executam o código recebido. O serviço pode carregar o runtime e decidir posteriormente quando habilitar operações de execução.
-
-## Resultado de execução
-
-As APIs de execução retornam um objeto `ExecResult`:
-
-```js
-{
-  stdout: "texto produzido pelo programa",
-  stderr: "mensagens de erro ou diagnóstico",
-  exitCode: 0
-}
-```
-
-Um `exitCode` igual a `0` indica sucesso. Outros valores indicam erro ou uso inválido do comando.
-
-## Executar código e arquivos
-
-A função `runtime.exec(request)` aceita `python`, `javascript`, `typescript`, `html` e linguagens encaminhadas por adapters:
-
-```js
-const result = await runtime.exec({
-  language: "python",
-  code: "print('Olá do CPython')",
-  args: ["--modo", "teste"]
+const denoRuntime = DenoRuntime.create({
+  fs:             runtime.fs,
+  networkAllowed: true,
+  timeoutMs:      30_000,
 });
 
-console.log(result.stdout);
-console.error(result.stderr);
-console.log(result.exitCode);
+const runtime = await Wexel.create({ deno: denoRuntime });
 ```
 
-Para executar um arquivo armazenado na VFS:
+### Como funciona por ambiente
 
-```js
-runtime.fs.write("/workspace/hello.py", "print('arquivo executado')");
+**No Node.js (NodeExecution / sandbox):**
+- Usa o binário nativo `deno.gz` incluído no repositório
+- `deno.gz` é descomprimido automaticamente na primeira execução
+- O Deno roda como subprocesso isolado num diretório temporário
+- O VFS do Wexel é materializado em disco antes da execução
 
+**No browser:**
+- Se `crossOriginIsolated` + `SharedArrayBuffer` disponíveis: usa o **Deno real** via `DenoBrowserHost`
+  - Service Worker intercepta `/wexel-vfs/*` e serve do VFS via SharedArrayBuffer
+  - Node.js sandbox roda o Deno nativo dentro de um `worker_thread`
+  - O Deno **acha que está no Linux real**
+- Fallback automático para shim JS quando COOP/COEP não estão configurados
+
+### Executar código Deno
+
+```ts
+// JavaScript
 const result = await runtime.exec({
-  language: "python",
-  file: "/workspace/hello.py",
-  args: []
+  language: "javascript",
+  code: `
+    const data = await Deno.readTextFile("/src/config.json");
+    console.log(JSON.parse(data).name);
+  `,
 });
+
+// TypeScript
+const result = await runtime.exec({
+  language: "typescript",
+  code: `
+    interface Config { name: string; version: number; }
+    const cfg: Config = JSON.parse(await Deno.readTextFile("/config.json"));
+    console.log(cfg.name, cfg.version);
+  `,
+});
+
+console.log(result.stdout);  // saída do programa
+console.log(result.stderr);  // erros
+console.log(result.exitCode); // 0 = sucesso
 ```
 
-Para JavaScript e TypeScript, registre um `denoRunner` real na criação do runtime. Sem esse adapter, o Wexel retorna um erro explícito em vez de simular a execução.
+### Via shell
 
-## `loadScript()`
+```ts
+// Rodar arquivo TypeScript
+await runtime.shell.exec("deno run /src/app.ts");
 
-`loadScript(source)` carrega um script a partir de uma URL ou devolve um buffer já fornecido:
+// Avaliar expressão
+await runtime.shell.exec('deno eval "console.log(Deno.version)"');
 
-```js
-const source = await runtime.loadScript("https://example.com/script.py");
-console.log(source.byteLength);
+// Verificar versão
+await runtime.shell.exec("deno --version");
+// deno 2.3.5 (stable, release, x86_64-unknown-linux-gnu)
+// v8 13.7.152.6-rusty
+// typescript 5.8.3
 ```
 
-Com bytes locais:
+### Configurar headers COOP/COEP (browser)
 
-```js
-const source = await runtime.loadScript(
-  new TextEncoder().encode("print('carregado')")
+Para usar o Deno real no browser, o servidor precisa retornar:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+```ts
+import { getRequiredHeaders, checkBrowserSupport } from "wexel";
+
+// Verificar suporte
+const { ok, missing } = checkBrowserSupport();
+if (!ok) console.warn("Recursos ausentes:", missing);
+
+// Headers necessários
+const headers = getRequiredHeaders();
+// { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" }
+```
+
+---
+
+## Gerenciador de pacotes
+
+O Wexel 3.0 suporta `npm install`, `pnpm install` e `deno add` nativamente:
+
+```ts
+// Via shell
+runtime.permissions.network = true;
+
+await runtime.shell.exec("npm install lodash");
+await runtime.shell.exec("pnpm install axios");
+await runtime.shell.exec("deno add jsr:@std/path");
+await runtime.shell.exec("deno add npm:zod");
+
+// Instalar dependências do package.json no VFS
+runtime.fs.write("/package.json", JSON.stringify({
+  dependencies: { lodash: "latest", axios: "latest" }
+}));
+await runtime.shell.exec("npm install");
+
+// Instalar dependências do deno.json no VFS
+runtime.fs.write("/deno.json", JSON.stringify({
+  imports: { "@std/path": "jsr:@std/path" }
+}));
+await runtime.shell.exec("deno install");
+```
+
+---
+
+## Git
+
+Cinco comandos Git completos integrados ao VFS:
+
+```ts
+runtime.permissions.network = true;
+
+// git clone — GitHub e GitLab via API REST
+const result = await runtime.shell.exec(
+  "git clone https://github.com/denoland/deno_std meu-projeto"
 );
-```
-
-## `runScript()`
-
-`runScript(source, request)` carrega o conteúdo e encaminha sua execução para `runtime.exec()`:
-
-```js
-const result = await runtime.runScript(
-  new TextEncoder().encode("print('executando script')"),
-  { language: "python", args: [] }
-);
-
 console.log(result.stdout);
+// Cloning into 'meu-projeto'...
+// 42 arquivo(s) clonado(s) em /meu-projeto
+
+// git status
+await runtime.shell.exec("git status");
+// On branch main
+// nothing to commit, working tree clean
+
+// git log
+await runtime.shell.exec("git log --oneline -5");
+// abc1234 clone from https://github.com/...
+
+// git diff
+await runtime.shell.exec("git diff src/index.ts");
+
+// git commit
+await runtime.shell.exec('git commit -m "feat: nova funcionalidade"');
+// [main abc1234] feat: nova funcionalidade
+//  3 file(s) changed
 ```
 
-No modo `load-only`, o conteúdo é apenas registrado como carregado e não é executado.
+### Repositórios privados
+
+```ts
+const runtime = await Wexel.create({
+  gitToken: "ghp_seuTokenAqui",
+  permissions: { network: true },
+});
+
+await runtime.shell.exec("git clone https://github.com/sua-org/repo-privado");
+```
+
+---
+
+## curl e wget
+
+```ts
+runtime.permissions.network = true;
+
+// GET simples
+const result = await runtime.shell.exec("curl https://api.github.com/users/denoland");
+console.log(result.stdout); // JSON da resposta
+
+// POST com JSON
+await runtime.shell.exec(`curl -X POST https://api.exemplo.com/dados \
+  -H "Content-Type: application/json" \
+  -d '{"nome":"Wexel","versao":3}'`);
+
+// Salvar no VFS com -o
+await runtime.shell.exec("curl -o /downloads/dados.json https://api.exemplo.com/dados");
+const dados = runtime.fs.readText("/downloads/dados.json");
+
+// Silencioso + seguir redirects
+await runtime.shell.exec("curl -s -L https://exemplo.com/arquivo.txt -o /tmp/arquivo.txt");
+
+// Incluir headers na resposta
+await runtime.shell.exec("curl -i https://httpbin.org/get");
+
+// Atalho --json (POST com Content-Type: application/json automático)
+await runtime.shell.exec(`curl --json '{"chave":"valor"}' https://api.exemplo.com`);
+
+// wget (convertido internamente para curl)
+await runtime.shell.exec("wget -O /tmp/arquivo.html https://exemplo.com");
+```
+
+---
+
+## Shell Linux modernizado
+
+O `runtime.shell.exec()` suporta 40+ comandos Linux:
+
+```ts
+// Navegação
+await runtime.shell.exec("pwd");
+await runtime.shell.exec("cd /workspace");
+await runtime.shell.exec("ls -la");
+await runtime.shell.exec("find / -name '*.ts'");
+
+// Manipulação de arquivos
+await runtime.shell.exec("mkdir -p /projeto/src/utils");
+await runtime.shell.exec("touch /projeto/src/index.ts");
+await runtime.shell.exec("cp /projeto/src/index.ts /backup/index.ts");
+await runtime.shell.exec("mv /tmp/rascunho.ts /projeto/src/final.ts");
+await runtime.shell.exec("rm /tmp/lixo.txt");
+
+// Leitura e busca
+await runtime.shell.exec("cat /projeto/src/index.ts");
+await runtime.shell.exec("head -20 /projeto/src/index.ts");
+await runtime.shell.exec("tail -10 /projeto/src/index.ts");
+await runtime.shell.exec("grep -i 'function' /projeto/src/index.ts");
+await runtime.shell.exec("wc /projeto/src/index.ts");
+await runtime.shell.exec("sort /lista.txt");
+await runtime.shell.exec("sort -r /lista.txt");
+await runtime.shell.exec("uniq /duplicados.txt");
+
+// Escrita
+await runtime.shell.exec("echo 'Olá, Wexel 3.0!' > /hello.txt");
+await runtime.shell.exec("printf 'linha1\\nlinha2\\n' > /multi.txt");
+
+// Info do sistema
+await runtime.shell.exec("whoami");      // wexel
+await runtime.shell.exec("uname -a");    // Linux wexel-sandbox 6.1.0-wexel ...
+await runtime.shell.exec("hostname");    // wexel-sandbox
+await runtime.shell.exec("date");
+await runtime.shell.exec("env");
+
+// Disco e quota
+await runtime.shell.exec("df");
+await runtime.shell.exec("du /projeto");
+await runtime.shell.exec("wexel quota");
+// Usado: 1.2 MB / 5.0 GB (0%)
+
+// Hash e encoding
+await runtime.shell.exec("sha256sum /projeto/src/index.ts");
+await runtime.shell.exec("md5sum /arquivo.bin");
+await runtime.shell.exec("base64 /imagem.png");
+
+// Processos e utilitários
+await runtime.shell.exec("sleep 1");
+await runtime.shell.exec("ps");
+await runtime.shell.exec("true");
+await runtime.shell.exec("false");
+await runtime.shell.exec("clear");
+
+// Ajuda
+await runtime.shell.exec("help");
+```
+
+### Tokenizador com suporte a aspas e escapes
+
+```ts
+// Aspas simples
+await runtime.shell.exec("echo 'texto com espaços'");
+
+// Aspas duplas
+await runtime.shell.exec('echo "texto com $variavel"');
+
+// Escape de caracteres
+await runtime.shell.exec("echo linha1\\nlinha2");
+
+// Variáveis de ambiente inline
+await runtime.shell.exec("NODE_ENV=production deno run /app.ts");
+```
+
+---
 
 ## Filesystem virtual
 
-O objeto `runtime.fs` é uma instância de `WexelFileSystem`.
+```ts
+// Escrever
+runtime.fs.write("/src/app.ts", `
+  const msg: string = "Olá do Wexel 3.0";
+  console.log(msg);
+`);
 
-### `pwd()`
+// Ler texto
+const code = runtime.fs.readText("/src/app.ts");
 
-Retorna o diretório de trabalho atual:
+// Ler bytes
+const bytes = runtime.fs.read("/imagem.png");
 
-```js
-console.log(runtime.fs.pwd());
-```
-
-### `cd(path)`
-
-Altera o diretório de trabalho:
-
-```js
-runtime.fs.mkdir("/workspace");
-runtime.fs.cd("/workspace");
-console.log(runtime.fs.pwd());
-```
-
-### `mkdir(path)`
-
-Cria um diretório virtual:
-
-```js
-runtime.fs.mkdir("/workspace/src");
-```
-
-### `touch(path)`
-
-Cria um arquivo vazio se ele ainda não existir:
-
-```js
-runtime.fs.touch("/workspace/src/main.c");
-```
-
-### `write(path, data)`
-
-Grava texto ou bytes:
-
-```js
-runtime.fs.write("/workspace/message.txt", "Olá, Wexel");
-runtime.fs.write("/workspace/data.bin", new Uint8Array([1, 2, 3]));
-```
-
-A quota é verificada em cada gravação.
-
-### `read(path)` e `readText(path)`
-
-`read()` retorna bytes. `readText()` decodifica o conteúdo como texto:
-
-```js
-const bytes = runtime.fs.read("/workspace/data.bin");
-const text = runtime.fs.readText("/workspace/message.txt");
-console.log(bytes, text);
-```
-
-### `list()`
-
-Lista os itens do diretório de trabalho:
-
-```js
-console.log(runtime.fs.list());
-```
-
-### `exists(path)`
-
-Verifica se um arquivo ou diretório existe:
-
-```js
-if (runtime.fs.exists("/workspace/message.txt")) {
-  console.log("arquivo encontrado");
+// Verificar existência
+if (runtime.fs.exists("/config.json")) {
+  const cfg = JSON.parse(runtime.fs.readText("/config.json"));
 }
-```
 
-### `remove(path)`
+// Navegar
+runtime.fs.mkdir("/projeto/src/utils");
+runtime.fs.cd("/projeto");
+console.log(runtime.fs.pwd()); // /projeto
+console.log(runtime.fs.list()); // ["src"]
 
-Remove um arquivo ou uma árvore de diretórios:
+// Home
+console.log(runtime.fs.home); // /home/wexel
 
-```js
-runtime.fs.remove("/workspace/data.bin");
-```
+// Quota
+const { usedBytes, limitBytes } = runtime.fs.quota;
+console.log(`${usedBytes} / ${limitBytes} bytes`);
 
-### `quota`
-
-Consulta o uso atual e o limite:
-
-```js
-console.log(runtime.fs.quota);
-// { usedBytes: 0, limitBytes: 5368709120 }
-```
-
-### `snapshot()`
-
-Cria uma cópia dos arquivos armazenados, útil para persistência ou inspeção:
-
-```js
+// Snapshot (para persistência)
 const files = runtime.fs.snapshot();
-for (const file of files) {
-  console.log(file.path, file.data.byteLength);
+for (const { path, data } of files) {
+  console.log(path, data.byteLength, "bytes");
 }
+
+// Remover
+runtime.fs.remove("/tmp/lixo");
 ```
 
-## Terminal Linux-like
+---
 
-Use `runtime.shell.exec(command)` para executar comandos dentro da VFS e do Wexel Assembly:
+## CPython
 
-```js
-const result = await runtime.shell.exec("pwd");
-console.log(result.stdout);
-```
-
-Comandos disponíveis na versão 2.0:
-
-```text
-pwd ls cd mkdir touch rm cat head tail echo curl git pip native-cli whoami uname help
-```
-
-Exemplo de sequência:
-
-```js
-await runtime.shell.exec("mkdir /workspace");
-await runtime.shell.exec("touch /workspace/readme.txt");
-await runtime.shell.exec("echo Wexel 2.0 > /workspace/readme.txt");
-
-const result = await runtime.shell.exec("cat /workspace/readme.txt");
-console.log(result.stdout);
-```
-
-O terminal é Linux-like, mas não é um kernel Linux. Os comandos funcionam dentro do runtime virtual e respeitam as permissões do Wexel.
-
-## Permissões
-
-As permissões ficam disponíveis em `runtime.permissions`:
-
-```js
-runtime.permissions.network = true;
-runtime.permissions.files = true;
-runtime.permissions.modules = true;
-runtime.permissions.storage = true;
-```
-
-A rede começa bloqueada por padrão. Operações como `curl`, `pip install` e `git clone` devem receber autorização de rede.
-
-## `curl`
-
-Com a permissão de rede habilitada:
-
-```js
-runtime.permissions.network = true;
-const result = await runtime.shell.exec("curl https://example.com");
-console.log(result.stdout);
-```
-
-No navegador, a solicitação ainda está sujeita às políticas de Fetch e CORS.
-
-## `git clone`
-
-O terminal reconhece o comando:
-
-```js
-const result = await runtime.shell.exec(
-  "git clone https://github.com/exemplo/projeto.git projeto"
-);
-```
-
-Para funcionar, registre um `gitCloneRunner` que implemente o clone através de um módulo Git ou BusyBox WASM compatível. Sem esse adapter, o Wexel retorna uma mensagem explícita.
-
-## Pip WASM-native
-
-O comando `pip install` consulta um índice PyPI, baixa o wheel, verifica o SHA-256 e extrai os arquivos diretamente em `/site-packages`:
-
-```js
-runtime.permissions.network = true;
-const result = await runtime.shell.exec("pip install six");
-console.log(result.stdout);
-```
-
-O instalador aceita wheels `none-any`, `wasm32-wasi` e `wasm32-wasip1`. Wheels nativos precisam ser publicados para uma ABI WebAssembly compatível; um wheel Linux com `.so` não pode ser carregado diretamente pelo CPython WASI.
-
-## CPython WASI
-
-Registre um runner CPython real:
-
-```js
-import { createWasiPythonRunner } from "wexel/node";
-
-const pythonRunner = createWasiPythonRunner({
-  pythonWasm: "./assets/cpython-3.14.7/python.wasm",
-  pythonRoot: "./assets/cpython-3.14.7",
-  wasmtime: "wasmtime"
-});
-
-const runtime = await Wexel.create({ coreBytes, pythonRunner });
+```ts
+// Executar código Python
 const result = await runtime.exec({
   language: "python",
-  code: "print('CPython 3.14.7')"
+  code: `
+import json
+data = {"wexel": True, "version": 3}
+print(json.dumps(data))
+  `,
 });
+console.log(result.stdout); // {"wexel": true, "version": 3}
+
+// Executar arquivo Python do VFS
+runtime.fs.write("/scripts/hello.py", "print('Olá do CPython 3.14.7')");
+await runtime.shell.exec("python3 /scripts/hello.py");
+
+// pip install
+runtime.permissions.network = true;
+await runtime.shell.exec("pip install requests");
+await runtime.shell.exec("pip3 install numpy");
 ```
 
-## V9: HTML e CSS
+---
 
-O V9 cria documentos HTML/CSS. O método `createWebDocument(document)` retorna o HTML pronto:
+## BusyBox
 
-```js
+```ts
+import { createBusyBoxRunner } from "wexel";
+
+const busybox = await createBusyBoxRunner({
+  source: busyboxWasmBytes,
+});
+
+const result = await busybox.run("ls -la /");
+console.log(result.stdout);
+```
+
+---
+
+## RustV
+
+```ts
+import { RustV } from "wexel";
+
+const rustv = await RustV.load({
+  source:      rustvBytes,
+  expectedAbi: 20001,
+});
+
+console.log(rustv.version()); // 20001
+console.log(rustv.add(20, 22)); // 42
+console.log(rustv.exitCode()); // 0
+```
+
+---
+
+## Compilar C/C++ para WASM
+
+```ts
+import { compileNativeSource } from "wexel";
+
+// C++
+await compileNativeSource({
+  source: "./math.cpp",
+  output: "./math.wasm",
+  flags:  ["-Wl,--export=add"],
+});
+
+// C
+await compileNativeSource({
+  source: "./multiply.c",
+  output: "./multiply.wasm",
+});
+
+// Carregar o módulo gerado
+const mod = await runtime.loadModule(await readFile("./math.wasm"));
+console.log(mod.exports.add(20, 22)); // 42
+```
+
+---
+
+## Extensões nativas WASM
+
+```ts
+const extension = await runtime.loadNativeExtension(
+  {
+    name:         "math-extension",
+    version:      "3.0.0",
+    abi:          "wexel-3",
+    entry:        "math.wasm",
+    sha256:       "hash-hex-opcional",
+    commands:     ["add", "multiply"],
+    dependencies: [],
+  },
+  mathWasmBytes,
+);
+
+// Invocar export
+const result = runtime.extensions.invoke("math-extension", "add", [20, 22]);
+console.log(result); // 42
+
+// Listar extensões carregadas
+console.log(runtime.extensions.list());
+
+// CLI nativa
+await runtime.shell.exec("native-cli version");
+await runtime.shell.exec("native-cli add 20 22"); // 42
+```
+
+---
+
+## V9 — Documentos HTML/CSS
+
+```ts
 const html = runtime.createWebDocument({
   title: "Minha interface",
-  body: "<main><h1>Wexel</h1><p>Interface V9.</p></main>",
-  css: "body { font-family: sans-serif; padding: 2rem; }"
+  body:  "<main><h1>Wexel 3.0</h1><p>Rodando no browser.</p></main>",
+  css:   "body { font-family: sans-serif; padding: 2rem; background: #0f0f0f; color: #fff; }",
 });
 
 const frame = document.createElement("iframe");
@@ -367,229 +504,120 @@ frame.srcdoc = html;
 document.body.append(frame);
 ```
 
-O V9 usa o motor nativo do navegador para a renderização. JavaScript e TypeScript não são executados pelo V9; devem ser encaminhados ao Deno por meio de `denoRunner`.
+---
 
-## Carregar módulos WASM
+## WebPink — Rede controlada entre sandboxes
 
-`loadModule(source)` instancia um módulo WASM e emite o evento `module:loaded`:
+```ts
+import { WebPink } from "wexel";
 
-```js
-const module = await runtime.loadModule("./module.wasm");
-const run = module.exports.run;
+const pink = new WebPink({
+  allowHosts:       ["api.exemplo.com"],
+  maxResponseBytes: 1 * 1024 * 1024, // 1MB
+  timeoutMs:        5_000,
+});
 
-if (typeof run === "function") {
-  console.log(run());
-}
-```
-
-Para bytes locais:
-
-```js
-const module = await runtime.loadModule(moduleBytes);
-```
-
-## Extensões nativas
-
-`loadNativeExtension(manifest, source)` valida e registra uma extensão WASM:
-
-```js
-const extension = await runtime.loadNativeExtension({
-  name: "math-extension",
-  version: "2.0.0",
-  abi: "wexel-2",
-  entry: "math.wasm",
-  commands: ["add"],
-  dependencies: []
-}, mathWasm);
-```
-
-O manifesto pode incluir um SHA-256:
-
-```js
-{
-  name: "math-extension",
-  version: "2.0.0",
-  abi: "wexel-2",
-  entry: "math.wasm",
-  sha256: "hash-hexadecimal",
-  commands: ["add"]
-}
-```
-
-### `runtime.extensions.get(name)`
-
-Retorna uma extensão carregada:
-
-```js
-const extension = runtime.extensions.get("math-extension");
-```
-
-### `runtime.extensions.list()`
-
-Lista os manifestos registrados:
-
-```js
-console.log(runtime.extensions.list());
-```
-
-### `runtime.extensions.invoke(name, exportName, args)`
-
-Invoca um export autorizado pelo manifesto:
-
-```js
-const value = runtime.extensions.invoke(
-  "math-extension",
-  "add",
-  [20, 22]
-);
-console.log(value);
-```
-
-## CLI C++ WASM
-
-A CLI nativa pode ser registrada na criação do runtime:
-
-```js
+// Sandbox com política de rede restrita
 const runtime = await Wexel.create({
-  coreBytes,
-  nativeCliBytes
-});
-
-const result = await runtime.shell.exec("native-cli add 20 22");
-console.log(result.stdout); // 42
-```
-
-A CLI é um módulo WASM; ela não cria subprocessos de sistema.
-
-## RustV
-
-O RustV é o motor Rust compilado para WASM:
-
-```js
-import { RustV } from "wexel";
-
-const rustv = await RustV.load({
-  source: rustvBytes,
-  expectedAbi: 20001
-});
-
-console.log(rustv.version());
-console.log(rustv.add(20, 22));
-console.log(rustv.exitCode());
-```
-
-A saída esperada é:
-
-```text
-20001
-42
-0
-```
-
-## Compilar C e C++
-
-A API `compileNativeSource()` usa `emcc` para C e `em++` para C++ no ambiente de compilação:
-
-```js
-import { compileNativeSource } from "wexel";
-
-await compileNativeSource({
-  source: "./math.cpp",
-  output: "./math.wasm",
-  flags: ["-Wl,--export=add"]
+  permissions: { network: true },
+  networkFetch: pink.fetch.bind(pink),
 });
 ```
 
-Exemplo C++:
+---
 
-```cpp
-extern "C" int add(int left, int right) {
-  return left + right;
-}
-```
+## Sandboxes Node.js isolados
 
-Exemplo C:
+```ts
+import { NodeExecution } from "wexel/node";
 
-```c
-int multiply(int left, int right) {
-  return left * right;
-}
-```
+const executor = new NodeExecution();
 
-Depois da compilação:
-
-```js
-const module = await runtime.loadModule(
-  await readFile("./math.wasm")
-);
-
-console.log(module.exports.add(20, 22));
-```
-
-A compilação exige uma toolchain Emscripten no ambiente. O módulo WASM gerado pode ser carregado no navegador ou no Node.js pelo Wexel Assembly.
-
-## Eventos do Buzz Box
-
-O runtime possui `runtime.buzz`, usado para eventos de ciclo de vida:
-
-```js
-runtime.buzz.on("runtime:ready", (payload) => {
-  console.log("runtime pronto", payload);
+// Criar sandbox isolada com Deno
+const sandbox = await executor.createSandbox({
+  permissions: { network: false },
+  storageQuotaBytes: 100 * 1024 * 1024, // 100MB
 });
 
-runtime.buzz.on("module:loaded", (payload) => {
-  console.log("módulo carregado", payload);
+// Rodar Deno na sandbox
+const result = await sandbox.runtime.exec({
+  language: "typescript",
+  code: `console.log("Deno rodando em sandbox isolada");`,
 });
+
+console.log(result.stdout);
+await sandbox.dispose();
 ```
 
-Os eventos principais incluem `runtime:ready`, `script:loaded`, `module:loaded` e `extension:loaded`.
+---
 
-## Build e testes
+## Eventos do BuzzBox
+
+```ts
+runtime.buzz.on("runtime:ready",    (p) => console.log("pronto", p));
+runtime.buzz.on("module:loaded",    (p) => console.log("módulo", p));
+runtime.buzz.on("extension:loaded", (p) => console.log("extensão", p));
+runtime.buzz.on("script:loaded",    (p) => console.log("script", p));
+```
+
+---
+
+## Modo `load-only`
+
+```ts
+const runtime = await Wexel.loadOnly({ coreBytes });
+
+console.log(runtime.mode); // "load-only"
+
+// exec() não executa — apenas emite "script:loaded"
+await runtime.exec({ language: "python", code: "print('não executa')" });
+```
+
+---
+
+## Build e desenvolvimento
 
 ```bash
 pnpm install
 pnpm build
 pnpm typecheck
 pnpm test
-```
 
-Build do BusyBox:
+# Binário do Deno (baixar para outras plataformas)
+node scripts/prepare-deno-wasm.mjs
 
-```bash
-./scripts/build-busybox.sh
-```
-
-Build do RustV:
-
-```bash
+# Build de componentes individuais
+pnpm build:busybox
 ./scripts/build-rustv.sh
-```
-
-Build da CLI C++:
-
-```bash
 ./scripts/build-native-cli.sh
 ```
 
-## Resumo da API
+---
 
-| API | Função |
+## Resumo da API 3.0
+
+| API | Descrição |
 |---|---|
-| `Wexel.create()` | Cria um runtime em modo de execução. |
-| `Wexel.loadOnly()` | Carrega o motor sem executar scripts. |
-| `runtime.exec()` | Executa código ou arquivo por linguagem. |
-| `runtime.loadScript()` | Carrega uma URL ou buffer. |
-| `runtime.runScript()` | Carrega e executa um script. |
-| `runtime.loadModule()` | Instancia um módulo WebAssembly. |
-| `runtime.loadNativeExtension()` | Valida e registra uma extensão WASM. |
-| `runtime.createWebDocument()` | Monta um documento HTML/CSS para o V9. |
-| `runtime.shell.exec()` | Executa comandos no terminal virtual. |
-| `runtime.fs.*` | Manipula a filesystem virtual. |
-| `runtime.extensions.*` | Lista, consulta e invoca extensões nativas. |
-| `runtime.packages.pip()` | Instala wheels compatíveis diretamente na VFS. |
-| `RustV.load()` | Carrega o motor Rust WASM. |
-| `compileNativeSource()` | Compila C/C++ para WASM via Emscripten. |
-
-## Limites de execução
-
-O Wexel Assembly não é um kernel Linux e não é Docker. O terminal é um ambiente Linux-like dentro do runtime. A execução de C, C++, Rust e extensões Python nativas depende de módulos WebAssembly compatíveis. A rede depende das permissões e, no navegador, das políticas de Fetch/CORS. A compilação de C/C++ dentro do navegador ainda exige uma toolchain de compilação portada para WebAssembly; a API atual compila no ambiente que fornece Emscripten.
+| `Wexel.create(opts)` | Cria runtime em modo execução. |
+| `Wexel.loadOnly(opts)` | Carrega sem executar. |
+| `runtime.exec({ language, code, file, args })` | Executa código (python, javascript, typescript). |
+| `runtime.shell.exec(command)` | Shell Linux com 40+ comandos. |
+| `runtime.deno(args)` | Interface direta ao Deno (run, eval, add, --version). |
+| `runtime.gitExec(args)` | Git: clone, status, log, diff, commit. |
+| `runtime.curlExec(args)` | curl/wget com rede real. |
+| `runtime.denoPackages(argv)` | npm/pnpm/deno add. |
+| `runtime.node(args)` | Executa JS via Deno (compat Node). |
+| `runtime.bash(args)` | Delega para bashRunner. |
+| `runtime.fs.*` | VFS: write, read, mkdir, cd, list, exists, snapshot, quota. |
+| `runtime.packages.pip(args)` | pip install via VFS. |
+| `runtime.loadModule(source)` | Instancia módulo WASM. |
+| `runtime.loadNativeExtension(manifest, bytes)` | Extensão WASM validada. |
+| `runtime.createWebDocument(doc)` | HTML/CSS via V9. |
+| `runtime.extensions.invoke(name, fn, args)` | Invoca export de extensão. |
+| `DenoRuntime.create(opts)` | Runtime Deno unificado (browser + Node). |
+| `DenoBrowserHost.create(fs, opts)` | Deno real no browser via SW + SAB. |
+| `installDenoServiceWorker()` | Instala SW para VFS no browser. |
+| `checkBrowserSupport()` | Verifica SAB + crossOriginIsolated. |
+| `RustV.load(opts)` | Motor Rust WASM. |
+| `compileNativeSource(opts)` | Compila C/C++ para WASM. |
+| `createBusyBoxRunner(opts)` | BusyBox WASM. |

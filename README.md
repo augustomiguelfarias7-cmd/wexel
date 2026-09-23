@@ -16,9 +16,13 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 ## Highlights
 
 - WebAssembly-first execution
-- JavaScript and TypeScript through Deno WASM
-- Linux-like virtual filesystem
+- Deno 2.3.5 nativo — roda de verdade no browser e no Node.js
+- JavaScript and TypeScript through Deno (real V8, TypeScript nativo)
+- Linux-like virtual shell with 40+ commands (`ls -la`, `grep`, `find`, `sha256sum`, `df`...)
 - Virtual shell with `~` and configurable home directories
+- Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
+- curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
+- npm/pnpm/deno add via Deno package manager integrado
 - Isolated backend sandboxes through `NodeExecution`
 - Per-sandbox permissions and storage quotas
 - Controlled networking through WebPink
@@ -109,39 +113,54 @@ Node.js / Express / Fastify / API
 
 Each sandbox is created independently and receives its own runtime instance and virtual filesystem.
 
-## Deno WebAssembly
+## Deno
 
-Wexel 3.0 adds a Deno-compatible WebAssembly runtime through `DenoWasmRuntime`.
-
-The virtual shell exposes the `deno` command and routes JavaScript and TypeScript execution to the Deno WASM runtime.
+Wexel 3.0 ships Deno 2.3.5 as a native binary (`assets/deno/deno.gz`). The `DenoRuntime` detects the environment automatically and runs the real Deno in both browser and Node.js.
 
 ```ts
-import { DenoWasmRuntime, Wexel } from "wexel";
-
-const denoRuntime = await DenoWasmRuntime.instantiate(denoWasm);
+import { DenoRuntime, Wexel } from "wexel";
 
 const runtime = await Wexel.create({
-  coreBytes,
-  denoRuntime,
+  deno: DenoRuntime.create({ fs: /* injected automatically */ null as any }),
+  permissions: { network: true },
 });
 
-runtime.fs.write(
-  "/app.ts",
-  "console.log('executado pelo Deno');",
-);
+// JavaScript
+await runtime.exec({
+  language: "javascript",
+  code: `const res = await fetch("https://api.github.com"); console.log(res.status);`,
+});
 
+// TypeScript
+runtime.fs.write("/app.ts", `
+  interface User { login: string; }
+  const u: User = { login: "wexel" };
+  console.log(u.login);
+`);
 await runtime.shell.exec("deno run /app.ts");
+
+// Package management
+await runtime.shell.exec("deno add jsr:@std/path");
+await runtime.shell.exec("npm install lodash");
+await runtime.shell.exec("pnpm install axios");
 ```
 
-Supported virtual commands include:
+Supported shell commands:
 
 ```text
 deno run <file.js|file.ts> [args]
 deno eval <code>
+deno add <specifier>
+deno install
 deno --version
+node <file.js>
+npm install <pkg>
+pnpm install <pkg>
 ```
 
-The Deno WASM adapter verifies its ABI before execution. The current runtime expects ABI `30000` and the required Deno WebAssembly exports.
+**Browser:** requires `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` headers for the real Deno via SharedArrayBuffer. Falls back to a JS shim automatically without those headers.
+
+**Node.js:** uses the native `deno.gz` binary decompressed at first run. No download required.
 
 HTML remains part of the V9 environment rather than the Deno runtime.
 
@@ -458,7 +477,14 @@ Main package:
 ```ts
 import {
   Wexel,
-  DenoWasmRuntime,
+  DenoRuntime,
+  DenoWasmRuntime,        // compatibilidade legada
+  DenoBrowserHost,
+  WexelGit,
+  runCurl,
+  DenoPackageManager,
+  installDenoServiceWorker,
+  checkBrowserSupport,
   createBusyBoxRunner,
   compileNativeSource,
   RustV,
