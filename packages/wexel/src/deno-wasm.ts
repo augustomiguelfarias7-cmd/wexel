@@ -121,6 +121,20 @@ export class DenoRuntime {
     language: "javascript" | "typescript",
     args:     string[],
   ): Promise<ExecResult> {
+    // Tenta usar o Deno real via DenoBrowserHost (SAB + Service Worker + Node sandbox)
+    try {
+      const { runDenoBrowser, isBrowserDenoSupported } = await import("./deno-browser-bridge.js");
+      if (isBrowserDenoSupported()) {
+        return await runDenoBrowser(this.fs, code, language, args, {
+          networkAllowed: this.net,
+          timeoutMs:      this.timeout,
+        });
+      }
+    } catch {
+      // SAB ou SW não disponível — cai no shim JS abaixo
+    }
+
+    // Fallback: shim JS (browser sem crossOriginIsolated ou sem SW)
     const url = this.workerUrl || this.ensureBlobUrl();
     const opts: DenoWorkerOptions = {
       workerScriptUrl: url,

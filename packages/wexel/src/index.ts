@@ -642,6 +642,9 @@ export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExten
 export { compileNativeSource, type CompileOptions, type CompileResult } from "./native-compiler.js";
 export { RustV, type RustVOptions } from "./rustv.js";
 export { DenoWasmRuntime, DenoRuntime, DENO_WASM_ABI_VERSION } from "./deno-wasm.js";
+export { DenoBrowserHost, type DenoBrowserHostOptions } from "./deno-browser-host.js";
+export { runDenoBrowser, disposeDenoBrowser, isBrowserDenoSupported } from "./deno-browser-bridge.js";
+export { installDenoServiceWorker, uninstallDenoServiceWorker, getRequiredHeaders, checkBrowserSupport } from "./deno-service-worker.js";
 export { createDenoNativeRunner, resolvedenoBin, type DenoNativeOptions } from "./deno-native-adapter.js";
 export { WexelGit, type GitOptions } from "./git.js";
 export { runCurl, type CurlOptions, type CurlResult } from "./curl.js";
