@@ -1,58 +1,35 @@
 /**
  * deno-browser-host.ts — Wexel
  *
- * Inicializa o ambiente completo para rodar Deno no browser:
+ * Inicializa o ambiente para rodar Deno no browser:
+ *   1. Instala o Service Worker (intercept /wexel-vfs/*)
+ *   2. Serve o VFS via SharedArrayBuffer (síncrono)
+ *   3. Expõe run() — executa código Deno real no Web Worker
  *
- *   1. Verifica suporte (SAB, crossOriginIsolated, ServiceWorker)
- *   2. Instala o Service Worker do Deno
- *   3. Conecta o VFS do Wexel ao SW via SharedArrayBuffer
- *   4. Expõe DenoBrowserHost.run() — roda código Deno real via Node sandbox
- *
- * O Deno roda dentro de uma sandbox Node.js do Wexel (deno-node-sandbox.ts),
- * que por sua vez usa o binário nativo deno.gz descomprimido.
- * O Service Worker intercepta as requisições de arquivo e rede.
- *
- * Uso:
- *   const host = await DenoBrowserHost.create(wexelRuntime);
- *   const result = await host.run(`console.log("oi do Deno!")`, "javascript");
+ * O Deno roda num Web Worker dedicado. Ele acha que está num Linux
+ * real: tem filesystem (VFS do Wexel via SAB), tem rede (fetch nativo
+ * do browser), tem variáveis de ambiente e processo coerentes.
  */
 
 import type { ExecResult, WexelFileSystem } from "./index.js";
-import {
-  installDenoServiceWorker,
-  checkBrowserSupport,
-} from "./deno-service-worker.js";
-import { createVfsBridgeChannel, serveVfsBridge } from "./deno-vfs-bridge.js";
-import { runDenoNative, resolvedenoBin } from "./deno-native-adapter.js";
-import { runDenoNodeSandbox } from "./deno-node-sandbox.js";
+import { installDenoServiceWorker, checkBrowserSupport } from "./deno-service-worker.js";
+import { runDenoWasmWorker } from "./deno-wasm-worker.js";
 
 export interface DenoBrowserHostOptions {
-  /** Permite rede real no Deno. Padrão: true (browser tem fetch nativo). */
   networkAllowed?: boolean;
-  /** Timeout por execução em ms. Padrão: 30 000. */
-  timeoutMs?: number;
-  /** Instala o Service Worker automaticamente. Padrão: true. */
-  autoInstallSW?: boolean;
+  timeoutMs?:      number;
+  autoInstallSW?:  boolean;
 }
 
 export class DenoBrowserHost {
-  private readonly stopVfs:  () => void;
-  private swReg?:            ServiceWorkerRegistration;
+  private swReg?: ServiceWorkerRegistration;
 
   private constructor(
-    private readonly fs:      WexelFileSystem,
-    private readonly channel: ReturnType<typeof createVfsBridgeChannel>,
-    private readonly opts:    Required<DenoBrowserHostOptions>,
-  ) {
-    // Serve o VFS para o Service Worker via SAB
-    this.stopVfs = serveVfsBridge(channel, fs);
-  }
+    private readonly fs:   WexelFileSystem,
+    private readonly opts: Required<DenoBrowserHostOptions>,
+  ) {}
 
-  /** Cria e inicializa o DenoBrowserHost. */
-  static async create(
-    fs:      WexelFileSystem,
-    options: DenoBrowserHostOptions = {},
-  ): Promise<DenoBrowserHost> {
+  static async create(fs: WexelFileSystem, options: DenoBrowserHostOptions = {}): Promise<DenoBrowserHost> {
     const opts: Required<DenoBrowserHostOptions> = {
       networkAllowed: true,
       timeoutMs:      30_000,
@@ -60,28 +37,16 @@ export class DenoBrowserHost {
       ...options,
     };
 
-    // Verifica suporte do browser
     const support = checkBrowserSupport();
     if (!support.ok) {
-      console.warn(
-        `[Wexel] DenoBrowserHost: recursos ausentes: ${support.missing.join(", ")}.\n` +
-        `Adicione os headers COOP/COEP ao servidor e garanta crossOriginIsolated.`,
-      );
+      console.warn(`[Wexel] DenoBrowserHost: recursos ausentes: ${support.missing.join(", ")}`);
     }
 
-    const channel = createVfsBridgeChannel();
-    const host    = new DenoBrowserHost(fs, channel, opts);
+    const host = new DenoBrowserHost(fs, opts);
 
-    // Instala o Service Worker
     if (opts.autoInstallSW && "serviceWorker" in navigator) {
       try {
         host.swReg = await installDenoServiceWorker();
-        // Envia o SAB para o SW para ele poder servir o VFS
-        host.swReg.active?.postMessage({
-          type: "wexel-vfs-init",
-          ctrl: channel.ctrl,
-          data: channel.data,
-        });
       } catch (err) {
         console.warn("[Wexel] Service Worker não instalado:", err);
       }
@@ -90,48 +55,19 @@ export class DenoBrowserHost {
     return host;
   }
 
-  /**
-   * Executa código JavaScript ou TypeScript no Deno real.
-   *
-   * O código roda via deno-node-sandbox (Node.js worker_thread),
-   * que por sua vez usa o binário nativo do Deno.
-   * O VFS do Wexel está disponível como filesystem real.
-   * A rede usa fetch nativo do browser (via Service Worker).
-   */
-  async run(
-    code:     string,
-    language: "javascript" | "typescript",
-    args:     string[] = [],
-  ): Promise<ExecResult> {
-    // Tenta binário nativo primeiro (mesmo no browser quando há acesso ao Node via worker)
-    try {
-      const bin = await resolvedenoBin();
-      return await runDenoNative(
-        this.fs,
-        { denoBin: bin, networkAllowed: this.opts.networkAllowed, timeoutMs: this.opts.timeoutMs },
-        { code, language, args },
-      );
-    } catch {
-      // Fallback: shim JS via worker_threads (ambiente sem acesso ao binário)
-      return runDenoNodeSandbox(
-        this.fs,
-        { networkAllowed: this.opts.networkAllowed, fetcher: fetch, timeoutMs: this.opts.timeoutMs },
-        { code, language, args },
-      );
-    }
+  /** Executa código JS/TS no Deno dentro do Web Worker com VFS real. */
+  async run(code: string, language: "javascript" | "typescript", args: string[] = []): Promise<ExecResult> {
+    return runDenoWasmWorker(
+      this.fs,
+      { networkAllowed: this.opts.networkAllowed, fetcher: fetch, timeoutMs: this.opts.timeoutMs },
+      { code, language, args },
+    );
   }
 
-  /** Libera recursos (para o serviço VFS e desregistra o SW). */
   async dispose(): Promise<void> {
-    this.stopVfs();
     await this.swReg?.unregister();
   }
 
-  /**
-   * URL base do VFS no Service Worker.
-   * Use para referenciar arquivos do VFS em imports do Deno:
-   *   import { foo } from "${host.vfsBaseUrl}/src/foo.ts";
-   */
   get vfsBaseUrl(): string {
     return `${location.origin}/wexel-vfs`;
   }
