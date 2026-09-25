@@ -19,6 +19,7 @@ import { Worker, MessageChannel as NodeMC } from "node:worker_threads";
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import { createWasmFsChannel, serveWasmFs } from "./deno-wasm-fs.js";
 import { NetBridgeHost } from "./deno-net-bridge.js";
+import { runDenoNative, resolvedenoBin } from "./deno-native-adapter.js";
 
 export interface DenoNodeWorkerOptions {
   networkAllowed?: boolean;
@@ -43,6 +44,19 @@ export async function runDenoNodeWorker(
   options: DenoNodeWorkerOptions,
   exec:    DenoNodeWorkerExec,
 ): Promise<ExecResult> {
+  // TypeScript: Deno nativo roda direto (tem tsc embutido)
+  if (exec.language === "typescript") {
+    const bin = await resolvedenoBin().catch(() => null);
+    if (bin) {
+      return runDenoNative(
+        fs,
+        { denoBin: bin, networkAllowed: options.networkAllowed, timeoutMs: options.timeoutMs },
+        { code: exec.code, language: "typescript", args: exec.args },
+      );
+    }
+    // fallback: transpiler mínimo + worker (sem Deno nativo)
+  }
+
   // Memória WASM compartilhada entre thread principal e worker_thread
   const memory = new WebAssembly.Memory({ initial: 16, maximum: 256, shared: true });
 
