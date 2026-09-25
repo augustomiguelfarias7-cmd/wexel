@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createBusyBoxRunner, type BusyBoxFactory } from "./busybox.js";
 import { createWasiPythonRunner, type WasiPythonOptions } from "./node-cpython.js";
 import { DenoWasmRuntime } from "./deno-wasm.js";
+import { runDenoNodeWorker } from "./deno-node-worker.js";
 import { Wexel, type WexelPermissions, type WexelRuntime } from "./index.js";
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
@@ -17,6 +18,13 @@ export interface NodeExecutionBusyBoxOptions {
 export interface NodeExecutionOptions {
   coreBytes: BufferSource;
   denoRuntime?: DenoWasmRuntime;
+  /**
+   * Usa worker_threads + WebAssembly.Memory shared para rodar o Deno
+   * dentro das sandboxes — equivalente ao Web Worker no browser.
+   * A rede passa automaticamente pelo WebPink da sandbox.
+   * Padrão: true quando denoRuntime não está definido.
+   */
+  denoNodeWorker?: boolean;
   python?: Omit<WasiPythonOptions, "fs">;
   busyBox?: NodeExecutionBusyBoxOptions;
   nativeCliBytes?: BufferSource;
@@ -64,15 +72,31 @@ export class NodeExecution {
     const id = options.id ?? randomUUID();
     if (this.sandboxes.has(id)) throw new Error(`Sandbox já existe: ${id}`);
     const webPink = this.webPink?.createClient(id, options.webPink);
+    // Decide o runner Deno para esta sandbox
+    const useNodeWorker = this.options.denoNodeWorker !== false && !this.options.denoRuntime;
+    const sandboxFetcher = webPink?.fetch.bind(webPink) as typeof fetch | undefined;
+
     const runtime = await Wexel.create({
       coreBytes: this.options.coreBytes,
       permissions: options.permissions,
       storageQuotaBytes: options.storageQuotaBytes,
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
       denoRuntime: this.options.denoRuntime,
+      // Worker_thread + memória WASM compartilhada + WebPink como rede
+      denoRunner: useNodeWorker
+        ? (code, language, args) => runDenoNodeWorker(
+            runtime.fs,
+            {
+              networkAllowed:  !!options.permissions?.network,
+              fetcher:         sandboxFetcher ?? fetch,
+              timeoutMs:       30_000,
+            },
+            { code, language: language as "javascript" | "typescript", args },
+          )
+        : undefined,
       pythonRunnerFactory: this.options.python ? (fs) => createWasiPythonRunner({ ...this.options.python!, fs }) : undefined,
       bashRunner: this.busyBox ? async (args) => this.busyBox!.run({ args: ["busybox", "sh", ...args] }) : undefined,
-      networkFetch: webPink?.fetch.bind(webPink),
+      networkFetch: sandboxFetcher,
       nativeCliBytes: this.options.nativeCliBytes,
       nativeExtensions: this.options.nativeExtensions,
     });
