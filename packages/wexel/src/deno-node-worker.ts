@@ -44,18 +44,16 @@ export async function runDenoNodeWorker(
   options: DenoNodeWorkerOptions,
   exec:    DenoNodeWorkerExec,
 ): Promise<ExecResult> {
-  // TypeScript: Deno nativo roda direto (tem tsc embutido)
-  if (exec.language === "typescript") {
-    const bin = await resolvedenoBin().catch(() => null);
-    if (bin) {
-      return runDenoNative(
-        fs,
-        { denoBin: bin, networkAllowed: options.networkAllowed, timeoutMs: options.timeoutMs },
-        { code: exec.code, language: "typescript", args: exec.args },
-      );
-    }
-    // fallback: transpiler mínimo + worker (sem Deno nativo)
+  // JS e TS: Deno 2.3.5 nativo sempre que disponível
+  const bin = await resolvedenoBin().catch(() => null);
+  if (bin) {
+    return runDenoNative(
+      fs,
+      { denoBin: bin, networkAllowed: options.networkAllowed, timeoutMs: options.timeoutMs },
+      { code: exec.code, language: exec.language, args: exec.args },
+    );
   }
+  // Fallback: worker_thread com shim (sem binário nativo)
 
   // Memória WASM compartilhada entre thread principal e worker_thread
   const memory = new WebAssembly.Memory({ initial: 16, maximum: 256, shared: true });
