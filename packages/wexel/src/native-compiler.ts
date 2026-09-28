@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
-import { basename, extname } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 export interface CompileOptions {
   source: string;
   output: string;
-  emcc?: string;
-  emxx?: string;
+  cc?: string;
+  cxx?: string;
+  target?: string;
   flags?: string[];
 }
 
@@ -25,39 +28,56 @@ export interface RunResult extends CompileResult {
   exitCode: number;
 }
 
-/** Compila C/C++ para WASM no ambiente Node que fornece Emscripten. */
+/** Compila C/C++ diretamente para standalone WebAssembly usando Clang/Clang++. */
+export async function compileNativeSource(options: CompileOptions): Promise<CompileResult> {
+  const language = detectLanguage(options.source);
+  await access(options.source);
+  const compiler = language === "cpp" ? (options.cxx ?? "clang++") : (options.cc ?? "clang");
+  const target = options.target ?? "wasm32";
+  const args = [
+    `--target=${target}`, "-O2", "-ffreestanding", "-nostdlib",
+    "-Wl,--no-entry", "-Wl,--export=main", "-Wl,--allow-undefined",
+    options.source, "-o", options.output, ...(options.flags ?? []),
+  ];
+  const result = await run(compiler, args);
+  if (result.code !== 0) throw new Error(`${compiler} falhou (${result.code}):\n${result.stderr}`);
+  return { output: options.output, language, stdout: result.stdout, stderr: result.stderr };
+}
 
 export async function runNativeSource(options: RunOptions): Promise<RunResult> {
-  const { mkdtemp, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
   const dir = await mkdtemp(join(options.outputDirectory ?? tmpdir(), "wexel-native-"));
-  const output = join(dir, "program.js");
+  const output = join(dir, "program.wasm");
   try {
-    const extension = extname(options.source).toLowerCase();
-    const language = extension === ".cpp" || extension === ".cc" || extension === ".cxx" ? "cpp" : extension === ".c" ? "c" : undefined;
-    if (!language) throw new Error(`Fonte não suportada: ${basename(options.source)}. Use .c ou .cpp.`);
-    await access(options.source);
-    const compiler = language === "cpp" ? (options.emxx ?? "em++") : (options.emcc ?? "emcc");
-    const args = [options.source, "-O2", "-s", "EXIT_RUNTIME=1", "-s", "ERROR_ON_UNDEFINED_SYMBOLS=0", "-o", output, ...(options.flags ?? [])];
-    const result = await run(compiler, args);
-    if (result.code !== 0) throw new Error(`${compiler} falhou (${result.code}):\\n${result.stderr}`);
-    const executed = await run(process.execPath, [output]);
-    return { output, language, stdout: executed.stdout, stderr: executed.stderr, exitCode: executed.code };
+    const compiled = await compileNativeSource({ ...options, output });
+    const wasm = await readFile(output);
+    const printed: string[] = [];
+    let instance: WebAssembly.Instance;
+    const imports = {
+      env: {
+        wexel_print_i32: (value: number) => printed.push(String(value)),
+        wexel_print_bytes: (ptr: number, len: number) => {
+          const memory = instance.exports.memory as WebAssembly.Memory;
+          const bytes = new Uint8Array(memory.buffer, ptr, len);
+          printed.push(new TextDecoder().decode(bytes));
+        },
+      },
+    };
+    ({ instance } = await WebAssembly.instantiate(wasm, imports));
+    const main = (instance.exports as Record<string, unknown>).main;
+    if (typeof main !== "function") throw new Error("WASM não exportou main().");
+    const value = (main as () => unknown)();
+    const stdout = printed.length ? printed.join("") : `${String(value)}\n`;
+    return { ...compiled, stdout, stderr: "", exitCode: 0 };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 }
-\nexport async function compileNativeSource(options: CompileOptions): Promise<CompileResult> {
-  const extension = extname(options.source).toLowerCase();
-  const language = extension === ".cpp" || extension === ".cc" || extension === ".cxx" ? "cpp" : extension === ".c" ? "c" : undefined;
-  if (!language) throw new Error(`Fonte não suportada: ${basename(options.source)}. Use .c ou .cpp.`);
-  await access(options.source);
-  const compiler = language === "cpp" ? (options.emxx ?? "em++") : (options.emcc ?? "emcc");
-  const args = [options.source, "-O2", "-s", "STANDALONE_WASM=1", "-s", "ERROR_ON_UNDEFINED_SYMBOLS=0", "--no-entry", "-o", options.output, ...(options.flags ?? [])];
-  const result = await run(compiler, args);
-  if (result.code !== 0) throw new Error(`${compiler} falhou (${result.code}):\n${result.stderr}`);
-  return { output: options.output, language, stdout: result.stdout, stderr: result.stderr };
+
+function detectLanguage(source: string): "c" | "cpp" {
+  const extension = extname(source).toLowerCase();
+  if (extension === ".cpp" || extension === ".cc" || extension === ".cxx") return "cpp";
+  if (extension === ".c") return "c";
+  throw new Error(`Fonte não suportada: ${basename(source)}. Use .c ou .cpp.`);
 }
 
 function run(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
