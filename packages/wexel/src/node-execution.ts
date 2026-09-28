@@ -98,9 +98,9 @@ export class NodeExecution {
               networkAllowed:  !!options.permissions?.network,
               fetcher:         sandboxFetcher ?? fetch,
               timeoutMs:       30_000,
-              // WebPink precisa permanecer no caminho de execução para que
-              // rede e mutações do VFS não escapem para o host.
-              preferNative:    !sandboxFetcher,
+              // O worker/bridge mantém VFS + WebPink dentro da sandbox.
+              // Deno nativo é opt-in via createDenoNativeRunner().
+              preferNative:    false,
             },
             { code, language: language as "javascript" | "typescript", args },
           )
