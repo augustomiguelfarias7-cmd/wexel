@@ -377,28 +377,32 @@ console.log(result);
 
 ## Native C and C++
 
-Wexel includes native source compilation helpers for C and C++ through Emscripten:
+Wexel can compile freestanding C and C++ directly to WebAssembly with the native Clang/Clang++ toolchain:
 
 ```text
-C   -> emcc
-C++ -> em++
+C   -> clang --target=wasm32
+C++ -> clang++ --target=wasm32
 ```
 
-Example:
+The generated modules run through Node's WebAssembly API and can use Wexel host functions such as `wexel_print_i32` and `wexel_print_bytes`.
 
-```ts
-import { compileNativeSource } from "wexel";
+MultiC lets one `.cpp` container hold explicit C and C++ sections:
 
-await compileNativeSource({
-  source: "/tmp/example.cpp",
-  output: "/tmp/example.wasm",
-  flags: [
-    "-Wl,--export=wexel_add",
-  ],
-});
+```cpp
+// @wexel:c
+int main() { return 42; }
+
+// @wexel:cpp
+int main() { return 43; }
 ```
 
-Emscripten must be available in the environment when native compilation is requested.
+Run it through the Wexel shell with:
+
+```text
+multic run program.cpp
+```
+
+The sections are compiled concurrently and their results are aggregated deterministically as C first and C++ second. The native runtime artifacts live under `packages/wexel/assets/multic/`.
 
 ## RustV
 
