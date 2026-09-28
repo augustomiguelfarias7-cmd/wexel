@@ -34,6 +34,8 @@ export interface WexelOptions {
   permissions?: WexelPermissions;
   storageQuotaBytes?: number;
   homeDirectory?: string;
+  /** VFS externo/persistente. Quando fornecido, o runtime não cria outro Map. */
+  fs?: WexelFileSystem;
   mode?: "load-only" | "run";
   initialMemoryPages?: number;
   maxMemoryPages?: number;
@@ -439,7 +441,7 @@ export class WexelRuntime {
 
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.mode         = options.mode ?? "run";
-    this.fs           = new WexelFileSystem(options.storageQuotaBytes, options.homeDirectory);
+    this.fs           = options.fs ?? new WexelFileSystem(options.storageQuotaBytes, options.homeDirectory);
     this.pythonRunner = options.pythonRunner ?? options.pythonRunnerFactory?.(this.fs);
     this._denoRuntime = options.deno;
     this._denoRunner  = options.denoRunner ?? options.denoRuntime?.run.bind(options.denoRuntime);
