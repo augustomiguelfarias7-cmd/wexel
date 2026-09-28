@@ -1,0 +1,6 @@
+{
+  "abiVersion": 2,
+  "backend": "clang-wasm32",
+  "c": "c-runtime.wasm",
+  "cpp": "cpp-runtime.wasm"
+}
