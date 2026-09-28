@@ -123,8 +123,8 @@ export class WexelPersistentFS extends WexelFileSystem {
 
         // Diretório
         if (vfsPath.endsWith("/.dir")) {
-          await mkdir(dirname(real), { recursive: true }).catch(() => {});
-          await mkdir(real, { recursive: true }).catch(() => {});
+          const dir = this.vfsToReal(vfsPath.slice(0, -5) || "/");
+          await mkdir(dir, { recursive: true }).catch(() => {});
           continue;
         }
 
@@ -313,7 +313,16 @@ export class WexelIDBFS extends WexelFileSystem {
     const store = tx.objectStore(IDB_STORE);
     for (const path of this.dirty) {
       if (path.startsWith("\x00DEL\x00")) {
-        store.delete(path.slice(5));
+        const target = path.slice(5);
+        const keys = await new Promise<IDBValidKey[]>((res, rej) => {
+          const req = store.getAllKeys();
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        for (const key of keys) {
+          const keyPath = String(key);
+          if (keyPath === target || keyPath.startsWith(`${target}/`)) store.delete(key);
+        }
       } else if (this.exists(path)) {
         store.put(this.read(path), path);
       }
