@@ -102,8 +102,9 @@ export class WexelFileSystem {
     if (!value) throw new Error(`Arquivo inexistente: ${path}`);
     return value;
   }
-  list(): string[] {
-    const prefix = this.cwd === "/" ? "/" : `${this.cwd}/`;
+  list(path?: string): string[] {
+    const base = path === undefined ? this.cwd : this.resolve(path);
+    const prefix = base === "/" ? "/" : `${base}/`;
     return [...this.files.keys()].filter((x) => x.startsWith(prefix)).map((x) => x.slice(prefix.length)).filter((x) => x && x !== ".dir");
   }
   get quota(): { usedBytes: number; limitBytes: number } { return { usedBytes: this.used, limitBytes: this.quotaBytes }; }
