@@ -44,6 +44,8 @@ export interface SandboxOptions {
   permissions?: WexelPermissions;
   storageQuotaBytes?: number;
   homeDirectory?: string;
+  /** VFS opcional, incluindo WexelPersistentFS/WexelIDBFS quando suportado pelo host. */
+  fs?: WexelRuntime["fs"];
   webPink?: WebPinkSandboxPolicy;
 }
 
@@ -87,6 +89,7 @@ export class NodeExecution {
       permissions: options.permissions,
       storageQuotaBytes: options.storageQuotaBytes,
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
+      fs: options.fs,
       denoRuntime: this.options.denoRuntime,
       denoRunner: useNodeWorker
         ? (code, language, args) => runDenoNodeWorker(
