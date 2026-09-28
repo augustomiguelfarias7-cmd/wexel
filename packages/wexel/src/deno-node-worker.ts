@@ -46,8 +46,9 @@ export async function runDenoNodeWorker(
   options: DenoNodeWorkerOptions,
   exec:    DenoNodeWorkerExec,
 ): Promise<ExecResult> {
-  // JS e TS: Deno 2.3.5 nativo sempre que disponível
-  const bin = options.preferNative === false ? null : await resolvedenoBin().catch(() => null);
+  // O worker/bridge é o caminho seguro para sandboxes: mantém VFS e WebPink.
+  // O adapter nativo continua disponível por opção explícita.
+  const bin = options.preferNative === true ? await resolvedenoBin().catch(() => null) : null;
   if (bin) {
     return runDenoNative(
       fs,
@@ -114,7 +115,7 @@ export async function runDenoNodeWorker(
     // Envia ports ao worker — transferList só aqui, não no workerData
     worker.postMessage(
       { type: "ports", netPort: netWorker, ioPort: ioWorker },
-      [netWorker as unknown as ArrayBuffer, ioWorker as unknown as ArrayBuffer],
+      [netWorker, ioWorker],
     );
 
     worker.on("error",  (err: Error) => finish(1, `worker_thread Deno: ${err.message}\n`));
@@ -193,7 +194,7 @@ async function boot(){
     readText:(p)=>fsCall("readText",[p]),
     write:(p,d)=>fsCall("write",[p,[...(d instanceof Uint8Array?d:ENC.encode(d))]]),
     exists:(p)=>fsCall("exists",[p]),
-    list:()=>fsCall("list",[]),
+    list:(p)=>fsCall("list",[p]),
     pwd:()=>fsCall("pwd",[]),
     home:()=>fsCall("home",[]),
     mkdir:(p)=>fsCall("mkdir",[p]),
