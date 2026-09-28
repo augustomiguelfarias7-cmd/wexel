@@ -212,7 +212,7 @@ async function boot(){
     stat:(p)=>Promise.resolve({isFile:Vfs.exists(p),isDirectory:false,size:0}),
     mkdir:(p)=>{Vfs.mkdir(p);return Promise.resolve();},
     remove:(p)=>{Vfs.remove(p);return Promise.resolve();},
-    readDir:(p)=>(async function*(){for(const n of Vfs.list())yield{name:n,isFile:true,isDirectory:false};})(),
+    readDir:(p)=>(async function*(){for(const n of Vfs.list(p))yield{name:n,isFile:true,isDirectory:false};})(),
     cwd:()=>Vfs.pwd(),chdir:(p)=>Vfs.cd(p),
     args:workerData.args??[],pid:1,ppid:0,
     build:{os:"linux",arch:"x86_64",target:"x86_64-unknown-linux-gnu"},
