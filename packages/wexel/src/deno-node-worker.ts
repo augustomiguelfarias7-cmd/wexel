@@ -25,6 +25,8 @@ export interface DenoNodeWorkerOptions {
   networkAllowed?: boolean;
   fetcher?:        typeof fetch;
   timeoutMs?:      number;
+  /** Quando false, força o worker/bridge para manter VFS + WebPink no caminho da sandbox. */
+  preferNative?:   boolean;
 }
 
 export interface DenoNodeWorkerExec {
@@ -45,7 +47,7 @@ export async function runDenoNodeWorker(
   exec:    DenoNodeWorkerExec,
 ): Promise<ExecResult> {
   // JS e TS: Deno 2.3.5 nativo sempre que disponível
-  const bin = await resolvedenoBin().catch(() => null);
+  const bin = options.preferNative === false ? null : await resolvedenoBin().catch(() => null);
   if (bin) {
     return runDenoNative(
       fs,
