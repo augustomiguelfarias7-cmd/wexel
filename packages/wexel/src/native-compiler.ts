@@ -12,10 +12,8 @@ export interface RunResult extends CompileResult { exitCode: number; }
 export async function compileNativeSource(options: CompileOptions): Promise<CompileResult> {
   const language = detectLanguage(options.source); await access(options.source);
   const compiler = language === "cpp" ? (options.cxx ?? "clang++") : (options.cc ?? "clang");
-  const target = options.target ?? "wasm32";
-  const args = [`--target=${target}`, "-O2", "-ffreestanding", "-nostdlib", "-Wl,--no-entry", "-Wl,--export=wexel_main", "-Wl,--allow-undefined", "-Dmain=wexel_main", options.source, "-o", options.output, ...(options.flags ?? [])];
-  const result = await run(compiler, args);
-  if (result.code !== 0) throw new Error(`${compiler} falhou (${result.code}):\n${result.stderr}`);
+  const args = [`--target=${options.target ?? "wasm32"}`, "-O2", "-ffreestanding", "-nostdlib", "-Wl,--no-entry", "-Wl,--allow-undefined", "-Wl,--export-all", options.source, "-o", options.output, ...(options.flags ?? [])];
+  const result = await run(compiler, args); if (result.code !== 0) throw new Error(`${compiler} falhou (${result.code}):\n${result.stderr}`);
   return { output: options.output, language, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -23,17 +21,17 @@ export async function runNativeSource(options: RunOptions): Promise<RunResult> {
   const dir = await mkdtemp(join(options.outputDirectory ?? tmpdir(), "wexel-native-")); const output = join(dir, "program.wasm");
   try {
     const compiled = await compileNativeSource({ ...options, output }); const wasm = await readFile(output); const printed: string[] = []; let instance: WebAssembly.Instance;
-    const imports = { env: {
+    ({ instance } = await WebAssembly.instantiate(wasm, { env: {
       wexel_print_i32: (value: number) => printed.push(String(value)),
       wexel_print_bytes: (ptr: number, len: number) => { const memory = instance.exports.memory as WebAssembly.Memory; printed.push(new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len))); },
-    } };
-    ({ instance } = await WebAssembly.instantiate(wasm, imports));
-    const entry = (instance.exports as Record<string, unknown>).wexel_main;
-    if (typeof entry !== "function") throw new Error("WASM não exportou wexel_main().");
+    }}));
+    const entryName = Object.keys(instance.exports).find(name => name === "main" || name === "wexel_main" || /^_Z4main/.test(name));
+    const entry = entryName ? (instance.exports as Record<string, unknown>)[entryName] : undefined;
+    if (typeof entry !== "function") throw new Error("WASM não exportou uma função main().");
     const value = (entry as () => unknown)();
     return { ...compiled, stdout: printed.length ? printed.join("") : `${String(value)}\n`, stderr: "", exitCode: 0 };
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
 
 function detectLanguage(source: string): "c" | "cpp" { const extension = extname(source).toLowerCase(); if (extension === ".cpp" || extension === ".cc" || extension === ".cxx") return "cpp"; if (extension === ".c") return "c"; throw new Error(`Fonte não suportada: ${basename(source)}. Use .c ou .cpp.`); }
-function run(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> { return new Promise((resolve, reject) => { const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }); let stdout = ""; let stderr = ""; child.stdout.on("data", (chunk) => { stdout += chunk; }); child.stderr.on("data", (chunk) => { stderr += chunk; }); child.on("error", reject); child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr })); }); }
+function run(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> { return new Promise((resolve, reject) => { const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }); let stdout = ""; let stderr = ""; child.stdout.on("data", chunk => { stdout += chunk; }); child.stderr.on("data", chunk => { stderr += chunk; }); child.on("error", reject); child.on("close", code => resolve({ code: code ?? 1, stdout, stderr })); }); }
