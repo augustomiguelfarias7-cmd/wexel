@@ -119,7 +119,7 @@ function dispatchFs(fs: WexelFileSystem, method: string, args: unknown[]): unkno
       return null;
     }
     case "exists":  return fs.exists(args[0] as string);
-    case "list":    return fs.list();
+    case "list":    return fs.list(args[0] as string | undefined);
     case "mkdir":   fs.mkdir(args[0] as string); return null;
     case "remove":  fs.remove(args[0] as string); return null;
     case "pwd":     return fs.pwd();
