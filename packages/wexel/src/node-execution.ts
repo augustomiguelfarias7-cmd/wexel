@@ -95,6 +95,9 @@ export class NodeExecution {
               networkAllowed:  !!options.permissions?.network,
               fetcher:         sandboxFetcher ?? fetch,
               timeoutMs:       30_000,
+              // WebPink precisa permanecer no caminho de execução para que
+              // rede e mutações do VFS não escapem para o host.
+              preferNative:    !sandboxFetcher,
             },
             { code, language: language as "javascript" | "typescript", args },
           )
