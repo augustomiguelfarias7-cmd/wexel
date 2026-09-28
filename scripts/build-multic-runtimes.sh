@@ -5,19 +5,36 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$ROOT/packages/wexel/assets/multic"
 mkdir -p "$DEST"
 
-command -v emcc >/dev/null 2>&1 || { echo "Emscripten (emcc) não encontrado. Rode scripts/bootstrap-emscripten.sh primeiro." >&2; exit 1; }
-command -v em++ >/dev/null 2>&1 || { echo "Emscripten (em++) não encontrado. Rode scripts/bootstrap-emscripten.sh primeiro." >&2; exit 1; }
+CC="${WEXEL_CLANG:-clang}"
+CXX="${WEXEL_CLANGXX:-clang++}"
+TARGET="wasm32"
 
-COMMON=("-O2" "-s" "STANDALONE_WASM=1" "-s" "ERROR_ON_UNDEFINED_SYMBOLS=0" "--no-entry")
-emcc "$ROOT/runtimes/c-runtime/main.c" "${COMMON[@]}" "-s" "EXPORTED_FUNCTIONS=['_wexel_c_runtime_abi_version','_wexel_c_runtime_language']" -o "$DEST/c-runtime.wasm"
-em++ "$ROOT/runtimes/cpp-runtime/main.cpp" "${COMMON[@]}" "-s" "EXPORTED_FUNCTIONS=['_wexel_cpp_runtime_abi_version','_wexel_cpp_runtime_language']" -o "$DEST/cpp-runtime.wasm"
+command -v "$CC" >/dev/null 2>&1 || { echo "Clang não encontrado: $CC" >&2; exit 1; }
+command -v "$CXX" >/dev/null 2>&1 || { echo "Clang++ não encontrado: $CXX" >&2; exit 1; }
+
+COMMON=("--target=$TARGET" "-O2" "-ffreestanding" "-nostdlib" "-Wl,--no-entry")
+
+"$CC" "$ROOT/runtimes/c-runtime/main.c" "${COMMON[@]}" \
+  "-Wl,--export=wexel_c_runtime_abi_version" \
+  "-Wl,--export=wexel_c_runtime_language" \
+  "-Wl,--export=wexel_c_runtime_add" \
+  "-Wl,--export=wexel_c_vfs_checksum" \
+  -o "$DEST/c-runtime.wasm"
+
+"$CXX" "$ROOT/runtimes/cpp-runtime/main.cpp" "${COMMON[@]}" \
+  "-Wl,--export=wexel_cpp_runtime_abi_version" \
+  "-Wl,--export=wexel_cpp_runtime_language" \
+  "-Wl,--export=wexel_cpp_runtime_add" \
+  "-Wl,--export=wexel_cpp_vfs_checksum" \
+  -o "$DEST/cpp-runtime.wasm"
 
 cat > "$DEST/manifest.json" <<MANIFEST
 {
-  "abiVersion": 1,
+  "abiVersion": 2,
+  "backend": "clang-wasm32",
   "c": "c-runtime.wasm",
   "cpp": "cpp-runtime.wasm"
 }
 MANIFEST
 
-echo "MultiC runtimes gerados em $DEST"
+echo "MultiC runtimes gerados em $DEST usando Clang/Clang++."
