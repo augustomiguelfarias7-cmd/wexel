@@ -30,7 +30,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - CPython WASI integration
 - BusyBox WASM integration
 - Python package installation through the virtual filesystem
-- Native C/C++ to WebAssembly compilation through Emscripten
+- Native freestanding C/C++ to WebAssembly compilation through Clang/Clang++
 - RustV support for precompiled Rust WebAssembly modules
 - Native WebAssembly extensions
 - V9 HTML/CSS execution environment
@@ -377,16 +377,19 @@ console.log(result);
 
 ## Native C and C++
 
-Wexel can compile freestanding C and C++ directly to WebAssembly with the native Clang/Clang++ toolchain:
+Wexel can compile freestanding C and C++ directly to WebAssembly with the native Clang/Clang++ toolchain on Node.js:
+
 
 ```text
 C   -> clang --target=wasm32
 C++ -> clang++ --target=wasm32
 ```
 
-The generated modules run through Node's WebAssembly API and can use Wexel host functions such as `wexel_print_i32` and `wexel_print_bytes`.
+The generated modules are loaded through Node's WebAssembly API. The current backend is freestanding and does not provide a general-purpose libc/libstdc++ environment by itself.
 
-MultiC lets one `.cpp` container hold explicit C and C++ sections:
+### MultiC
+
+MultiC lets one `.cpp` source file hold explicit C and C++ sections:
 
 ```cpp
 // @wexel:c
@@ -403,6 +406,20 @@ multic run program.cpp
 ```
 
 The sections are compiled concurrently and their results are aggregated deterministically as C first and C++ second. The native runtime artifacts live under `packages/wexel/assets/multic/`.
+
+MultiC runtime artifacts can be rebuilt with:
+
+```bash
+pnpm build:multic
+```
+
+or directly:
+
+```bash
+bash scripts/build-multic-runtimes.sh
+```
+
+The script uses `clang` and `clang++` targeting `wasm32`. You can override the compiler paths with `WEXEL_CLANG` and `WEXEL_CLANGXX`.
 
 ## RustV
 
@@ -471,7 +488,9 @@ examples/
 ├── 06-pip-native-install.mjs
 ├── 07-loader-only.mjs
 ├── 08-compile-cpp.mjs
-└── 09-rustv.mjs
+├── 09-rustv.mjs
+├── 12-node-execution-webpink.mjs
+└── 13-vfs-persistent-webpink.mjs
 ```
 
 ## API Surface
@@ -491,6 +510,9 @@ import {
   checkBrowserSupport,
   createBusyBoxRunner,
   compileNativeSource,
+  runNativeSource,
+  parseMultiC,
+  runMultiCSource,
   RustV,
 } from "wexel";
 ```
@@ -523,6 +545,7 @@ pnpm test
 pnpm typecheck
 pnpm clean
 pnpm build:busybox
+pnpm build:multic
 ```
 
 The root `package.json` defines:
@@ -533,7 +556,8 @@ The root `package.json` defines:
   "test": "pnpm --filter wexel test",
   "typecheck": "pnpm --filter wexel typecheck",
   "clean": "rm -rf packages/*/dist",
-  "build:busybox": "bash scripts/build-busybox.sh"
+  "build:busybox": "bash scripts/build-busybox.sh",
+  "build:multic": "bash scripts/build-multic-runtimes.sh"
 }
 ```
 
@@ -589,6 +613,37 @@ pnpm clean
 pnpm build:busybox
 ```
 
+## MultiC Runtime Build
+
+Build the bundled C and C++ WebAssembly runtime artifacts with the native Clang toolchain:
+
+```bash
+pnpm build:multic
+```
+
+Equivalent direct command:
+
+```bash
+bash scripts/build-multic-runtimes.sh
+```
+
+To use specific compiler binaries:
+
+```bash
+WEXEL_CLANG=/path/to/clang \
+WEXEL_CLANGXX=/path/to/clang++ \
+bash scripts/build-multic-runtimes.sh
+```
+
+The generated artifacts are written to:
+
+```text
+packages/wexel/assets/multic/
+├── c-runtime.wasm
+├── cpp-runtime.wasm
+└── manifest.json
+```
+
 ## Project Structure
 
 ```text
@@ -604,6 +659,9 @@ wexel/
 │
 ├── examples/
 ├── native/
+├── runtimes/
+│   ├── c-runtime/
+│   └── cpp-runtime/
 ├── scripts/
 ├── package.json
 └── pnpm-workspace.yaml
@@ -621,6 +679,7 @@ packages/wexel/src/
 ├── web-pink.ts
 ├── native-compiler.ts
 ├── native-extensions.ts
+├── multic.ts
 └── rustv.ts
 ```
 
@@ -628,7 +687,7 @@ packages/wexel/src/
 
 Wexel provides controlled execution primitives, but it should not be treated as a complete kernel-level security boundary.
 
-Some adapters interact with host tooling such as Wasmtime or Emscripten. Applications executing untrusted code should therefore add an appropriate host-level isolation layer around Wexel.
+Some adapters interact with host tooling such as Wasmtime, Clang/Clang++, or Emscripten-based components. Applications executing untrusted code should therefore add an appropriate host-level isolation layer around Wexel.
 
 Wexel's permissions, filesystem quotas, virtual filesystem and WebPink policies are execution controls inside the Wexel architecture. They do not automatically replace operating-system isolation.
 
