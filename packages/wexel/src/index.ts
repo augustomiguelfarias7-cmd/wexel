@@ -7,6 +7,8 @@ import { DenoWasmRuntime } from "./deno-wasm.js";
 import { WexelGit } from "./git.js";
 import { runCurl } from "./curl.js";
 import { DenoPackageManager } from "./deno-package-manager.js";
+import { runNativeSource } from "./native-compiler.js";
+import { runMultiCVfs } from "./multic.js";
 
 export type Language = "python" | "wasm" | "javascript" | "typescript" | string;
 
@@ -172,7 +174,7 @@ const SHELL_HELP = `Wexel Shell — comandos disponíveis:
   Pacotes:      npm install  pnpm install  deno add
   Rede:         curl  wget
   Git:          git clone  git status  git log  git diff  git commit
-  Wexel:        wexel quota  native-cli  help  clear
+  Wexel:        wexel quota  native-cli  c  cpp  multic  help  clear
 `;
 
 // ── WexelShell ────────────────────────────────────────────────────────────────
@@ -396,6 +398,11 @@ export class WexelShell {
       // ── git ────────────────────────────────────────────────────────────────
       case "git": return this.runtime.gitExec(args);
 
+      // ── C / C++ / MultiC ────────────────────────────────────────────────────
+      case "c": return this.runtime.nativeLanguage("c", args);
+      case "cpp": return this.runtime.nativeLanguage("cpp", args);
+      case "multic": return this.runtime.multic(args);
+
       // ── extensões nativas ──────────────────────────────────────────────────
       case "native-cli": return this.runtime.nativeCli(args);
 
@@ -597,6 +604,42 @@ export class WexelRuntime {
     this.buzz.emit("extension:loaded", { name: manifest.name, version: manifest.version });
     return extension;
   }
+  async nativeLanguage(language: "c" | "cpp", args: string[]): Promise<ExecResult> {
+    const command = args[0];
+    if (command === "list") {
+      const extensions = language === "c" ? [".c"] : [".cpp", ".cc", ".cxx"];
+      const files = this.fs.snapshot().map((entry) => entry.path).filter((path) => extensions.some((ext) => path.toLowerCase().endsWith(ext)));
+      return { stdout: files.join("\\n") + (files.length ? "\\n" : ""), stderr: "", exitCode: 0 };
+    }
+    if (command !== "run" || !args[1]) return { stdout: "", stderr: `Uso: ${language} list | ${language} run <arquivo>
+`, exitCode: 2 };
+    const file = args[1];
+    const ext = file.toLowerCase().split(".").pop();
+    const expected = language === "c" ? ["c"] : ["cpp", "cc", "cxx"];
+    if (!ext || !expected.includes(ext)) return { stdout: "", stderr: `O comando ${language} só aceita arquivos ${language === "c" ? ".c" : ".cpp/.cc/.cxx"}.
+`, exitCode: 2 };
+    const source = this.fs.readText(file);
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "wexel-source-"));
+    const hostFile = join(dir, "program." + ext);
+    try {
+      await writeFile(hostFile, source, "utf8");
+      const result = await runNativeSource({ source: hostFile });
+      return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  async multic(args: string[]): Promise<ExecResult> {
+    if (args[0] !== "run" || !args[1]) return { stdout: "", stderr: "Uso: multic run <arquivo.cpp>\\n", exitCode: 2 };
+    const file = args[1];
+    if (!/\\.(cpp|cc|cxx)$/i.test(file)) return { stdout: "", stderr: "MultiC usa um arquivo-contêiner .cpp/.cc/.cxx.\\n", exitCode: 2 };
+    return runMultiCVfs(this.fs, file);
+  }
+
   async nativeCli(args: string[]): Promise<ExecResult> {
     const registered = this.extensions.get("wexel-cli");
     if (registered) {
@@ -653,7 +696,8 @@ export { createBusyBoxRunner, type BusyBoxFactory, type BusyBoxRunOptions, type 
 export { PythonPackageManager, type PackageInstallResult, type PackageManagerOptions } from "./python-packages.js";
 export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
 export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
-export { compileNativeSource, type CompileOptions, type CompileResult } from "./native-compiler.js";
+export { compileNativeSource, runNativeSource, type CompileOptions, type CompileResult, type RunOptions, type RunResult } from "./native-compiler.js";
+export { parseMultiC, runMultiCFile, runMultiCSource, runMultiCVfs, type MultiCOptions, type MultiCResult, type MultiCSection, type MultiCLanguage } from "./multic.js";
 export { RustV, type RustVOptions } from "./rustv.js";
 export { DenoWasmRuntime, DenoRuntime, DENO_WASM_ABI_VERSION } from "./deno-wasm.js";
 export { DenoBrowserHost, type DenoBrowserHostOptions } from "./deno-browser-host.js";
