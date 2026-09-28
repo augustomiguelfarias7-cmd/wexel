@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createBusyBoxRunner, type BusyBoxFactory } from "./busybox.js";
 import { createWasiPythonRunner, type WasiPythonOptions } from "./node-cpython.js";
+import { nodeWasiPythonRunnerFactory, type NodeWasiPythonOptions } from "./node-wasi-python.js";
 import { DenoWasmRuntime } from "./deno-wasm.js";
 import { runDenoNodeWorker } from "./deno-node-worker.js";
 import { Wexel, type WexelPermissions, type WexelRuntime } from "./index.js";
@@ -25,7 +26,13 @@ export interface NodeExecutionOptions {
    * Padrão: true quando denoRuntime não está definido.
    */
   denoNodeWorker?: boolean;
+  /** CPython via Wasmtime (legado). */
   python?: Omit<WasiPythonOptions, "fs">;
+  /**
+   * CPython REAL via node:wasi + python.wasm do asset (default se `python` omitido).
+   * Passe false para desligar.
+   */
+  pythonWasi?: Omit<NodeWasiPythonOptions, "fs"> | false;
   busyBox?: NodeExecutionBusyBoxOptions;
   nativeCliBytes?: BufferSource;
   nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
@@ -72,7 +79,6 @@ export class NodeExecution {
     const id = options.id ?? randomUUID();
     if (this.sandboxes.has(id)) throw new Error(`Sandbox já existe: ${id}`);
     const webPink = this.webPink?.createClient(id, options.webPink);
-    // Decide o runner Deno para esta sandbox
     const useNodeWorker = this.options.denoNodeWorker !== false && !this.options.denoRuntime;
     const sandboxFetcher = webPink?.fetch.bind(webPink) as typeof fetch | undefined;
 
@@ -82,7 +88,6 @@ export class NodeExecution {
       storageQuotaBytes: options.storageQuotaBytes,
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
       denoRuntime: this.options.denoRuntime,
-      // Worker_thread + memória WASM compartilhada + WebPink como rede
       denoRunner: useNodeWorker
         ? (code, language, args) => runDenoNodeWorker(
             runtime.fs,
@@ -94,7 +99,11 @@ export class NodeExecution {
             { code, language: language as "javascript" | "typescript", args },
           )
         : undefined,
-      pythonRunnerFactory: this.options.python ? (fs) => createWasiPythonRunner({ ...this.options.python!, fs }) : undefined,
+      pythonRunnerFactory: this.options.python
+        ? (fs) => createWasiPythonRunner({ ...this.options.python!, fs })
+        : this.options.pythonWasi === false
+          ? undefined
+          : nodeWasiPythonRunnerFactory(this.options.pythonWasi ?? {}),
       bashRunner: this.busyBox ? async (args) => this.busyBox!.run({ args: ["busybox", "sh", ...args] }) : undefined,
       networkFetch: sandboxFetcher,
       nativeCliBytes: this.options.nativeCliBytes,
