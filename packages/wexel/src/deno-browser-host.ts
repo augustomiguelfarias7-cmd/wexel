@@ -1,15 +1,8 @@
-/**
- * Host browser do Deno WASM no Wexel.
- *
- * O browser não executa o Deno nativo nem um shim JavaScript. O módulo
- * precisa ser um WebAssembly real e recebe seus recursos através do
- * DenoLinuxAdapter. A execução de código depende de um entrypoint de
- * execução compatível com a ABI do artefato Deno utilizado.
- */
+/** Host browser para um Deno WASM real dentro de DedicatedWorker. */
 
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import { DenoLinuxAdapter } from "./deno-linux-adapter.js";
-import { loadDenoWasm, type DenoWasmHostInstance } from "./deno-wasm-host.js";
+import { createDenoBrowserWorkerSource, DENO_BROWSER_ENTRYPOINT } from "./deno-browser-worker.js";
 
 export interface DenoBrowserHostOptions {
   networkAllowed?: boolean;
@@ -20,57 +13,73 @@ export interface DenoBrowserHostOptions {
 
 export class DenoBrowserHost {
   private readonly adapter: DenoLinuxAdapter;
-  private wasm?: DenoWasmHostInstance;
+  private readonly worker: Worker;
+  private readonly timeoutMs: number;
 
-  private constructor(
-    private readonly fs: WexelFileSystem,
-    options: DenoBrowserHostOptions,
-  ) {
+  private constructor(private readonly fs: WexelFileSystem, options: DenoBrowserHostOptions) {
+    this.timeoutMs = options.timeoutMs ?? 30_000;
     this.adapter = new DenoLinuxAdapter({
       fs,
       networkAllowed: options.networkAllowed ?? false,
       fetcher: options.fetcher ?? fetch,
     });
+    const blob = new Blob([createDenoBrowserWorkerSource()], { type: "text/javascript" });
+    this.worker = new Worker(URL.createObjectURL(blob), { type: "classic" });
   }
 
-  static async create(
-    fs: WexelFileSystem,
-    options: DenoBrowserHostOptions,
-  ): Promise<DenoBrowserHost> {
-    if (typeof Worker === "undefined") {
-      throw new Error("Deno WASM no browser requer Web Worker.");
-    }
+  static async create(fs: WexelFileSystem, options: DenoBrowserHostOptions): Promise<DenoBrowserHost> {
+    if (typeof Worker === "undefined") throw new Error("Deno WASM no browser requer Web Worker.");
     if (typeof SharedArrayBuffer === "undefined" || !crossOriginIsolated) {
       throw new Error("Deno WASM no browser requer SharedArrayBuffer e crossOriginIsolated.");
     }
-
     const host = new DenoBrowserHost(fs, options);
-    host.wasm = await loadDenoWasm(options.denoWasmUrl, { adapter: host.adapter });
-    return host;
+    try {
+      const response = await fetch(options.denoWasmUrl);
+      if (!response.ok) throw new Error(`Falha ao carregar Deno WASM: HTTP ${response.status}`);
+      await host.initialize(await response.arrayBuffer());
+      return host;
+    } catch (error) {
+      host.dispose();
+      throw error;
+    }
   }
 
-  /**
-   * Executa código somente quando o artefato Deno WASM fornecer um entrypoint
-   * compatível com a ABI Wexel. Instanciar um módulo WASM sozinho não cria um
-   * interpretador Deno, portanto não existe fallback para Node ou shim JS.
-   */
-  async run(
-    _code: string,
-    _language: "javascript" | "typescript",
-    _args: string[] = [],
-  ): Promise<ExecResult> {
-    if (!this.wasm) throw new Error("Deno WASM ainda não foi carregado.");
-    throw new Error(
-      "O Deno WASM foi carregado, mas o artefato não expõe um entrypoint de execução Deno compatível com a ABI Wexel. Compile/forneça um Deno WASM real com essa ABI antes de executar código.",
-    );
+  private initialize(bytes: ArrayBuffer): Promise<void> {
+    const resources = this.adapter.workerInit();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { cleanup(); reject(new Error(`Deno WASM não inicializou em ${this.timeoutMs} ms`)); }, this.timeoutMs);
+      const onMessage = (event: MessageEvent) => {
+        const msg = event.data as { type: string; data?: string };
+        if (msg.type === "ready") { cleanup(); resolve(); }
+        else if (msg.type === "error") { cleanup(); reject(new Error(msg.data ?? "Falha ao inicializar Deno WASM")); }
+      };
+      const cleanup = () => { clearTimeout(timer); this.worker.removeEventListener("message", onMessage); };
+      this.worker.addEventListener("message", onMessage);
+      this.worker.postMessage({ type: "init", wasmBytes: bytes, fsSab: resources.fsSab, netPort: resources.netPort }, [bytes, resources.netPort]);
+    });
   }
 
-  get wasmInstance(): DenoWasmHostInstance | undefined {
-    return this.wasm;
+  run(code: string, language: "javascript" | "typescript", args: string[] = []): Promise<ExecResult> {
+    return new Promise((resolve) => {
+      let stdout = "", stderr = "";
+      const timer = setTimeout(() => { cleanup(); resolve({ stdout, stderr: stderr + `Deno WASM timeout após ${this.timeoutMs} ms\n`, exitCode: 124 }); }, this.timeoutMs);
+      const onMessage = (event: MessageEvent) => {
+        const msg = event.data as { type: string; data?: string; exitCode?: number };
+        if (msg.type === "stdout") stdout += msg.data ?? "";
+        else if (msg.type === "stderr") stderr += msg.data ?? "";
+        else if (msg.type === "result" || msg.type === "exit") { cleanup(); resolve({ stdout, stderr, exitCode: msg.exitCode ?? 0 }); }
+        else if (msg.type === "error") { cleanup(); resolve({ stdout, stderr: stderr + (msg.data ?? "Erro Deno WASM") + "\n", exitCode: 1 }); }
+      };
+      const cleanup = () => { clearTimeout(timer); this.worker.removeEventListener("message", onMessage); };
+      this.worker.addEventListener("message", onMessage);
+      this.worker.postMessage({ type: "run", code, language, args });
+    });
   }
 
   dispose(): void {
+    this.worker.terminate();
     this.adapter.dispose();
-    this.wasm = undefined;
   }
+
+  get entrypoint(): string { return DENO_BROWSER_ENTRYPOINT; }
 }
