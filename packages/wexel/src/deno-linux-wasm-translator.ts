@@ -17,6 +17,11 @@
 export const DENO_LINUX_WASM_ABI = 1;
 
 export type DenoLinuxSyscall =
+  | "rt_sigaction"
+  | "rt_sigprocmask"
+  | "getdents64"
+  | "newfstatat"
+  | "kill"
   | "read"
   | "write"
   | "close"
@@ -51,7 +56,7 @@ export type DenoLinuxSyscall =
   | "uname";
 
 export interface DenoLinuxWasmCall {
-  syscall: DenoLinuxSyscall;
+  syscall: DenoLinuxSyscall | number;
   args: bigint[];
 }
 
