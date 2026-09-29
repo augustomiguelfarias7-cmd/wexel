@@ -473,6 +473,11 @@ export class WexelRuntime {
 
   // ── exec principal ─────────────────────────────────────────────────────────
 
+  /** Conecta um backend Deno à VFS desta sandbox após a criação do runtime. */
+  attachDenoRunner(runner: NonNullable<WexelOptions["denoRunner"]>): void {
+    (this as unknown as { _denoRunnerMutable?: NonNullable<WexelOptions["denoRunner"]> })._denoRunnerMutable = runner;
+  }
+
   async exec(request: ExecRequest): Promise<ExecResult> {
     if (this.mode === "load-only") { this.buzz.emit("script:loaded", { language: request.language }); return { stdout: "", stderr: "", exitCode: 0 }; }
     if (request.language === "wasm") throw new Error("Use loadModule() para módulos WASM");
@@ -483,9 +488,8 @@ export class WexelRuntime {
       if (this._denoRuntime) {
         return this._denoRuntime.run(code, request.language, request.args ?? []);
       }
-      if (this._denoRunner) {
-        return await this._denoRunner(code, request.language, request.args ?? []);
-      }
+      const runner = this._denoRunner ?? (this as unknown as { _denoRunnerMutable?: WexelOptions["denoRunner"] })._denoRunnerMutable;
+      if (runner) return await runner(code, request.language, request.args ?? []);
       throw new Error("Runtime Deno não foi registrado. Use DenoRuntime.create() nas opções.");
     }
 
