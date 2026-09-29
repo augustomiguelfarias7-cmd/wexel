@@ -1,130 +1,76 @@
 /**
- * deno-browser-host.ts — Wexel
+ * Host browser do Deno WASM no Wexel.
  *
- * Inicializa o ambiente completo para rodar Deno no browser:
- *
- *   1. Verifica suporte (SAB, crossOriginIsolated, ServiceWorker)
- *   2. Instala o Service Worker do Deno
- *   3. Conecta o VFS do Wexel ao SW via SharedArrayBuffer
- *   4. Expõe DenoBrowserHost.run() — roda código Deno real via Node sandbox
- *
- * O Deno roda dentro de uma sandbox Node.js do Wexel (deno-node-sandbox.ts),
- * que por sua vez usa o binário nativo deno.gz descomprimido.
- * O Service Worker intercepta as requisições de arquivo e rede.
- *
- * Uso:
- *   const host = await DenoBrowserHost.create(wexelRuntime);
- *   const result = await host.run(`console.log("oi do Deno!")`, "javascript");
+ * O browser não executa o Deno nativo nem um shim JavaScript. O módulo
+ * precisa ser um WebAssembly real e recebe seus recursos através do
+ * DenoLinuxAdapter. A execução de código depende de um entrypoint de
+ * execução compatível com a ABI do artefato Deno utilizado.
  */
 
 import type { ExecResult, WexelFileSystem } from "./index.js";
-import {
-  installDenoServiceWorker,
-  checkBrowserSupport,
-} from "./deno-service-worker.js";
-import { createVfsBridgeChannel, serveVfsBridge } from "./deno-vfs-bridge.js";
-import { runDenoNodeSandbox } from "./deno-node-sandbox.js";
+import { DenoLinuxAdapter } from "./deno-linux-adapter.js";
+import { loadDenoWasm, type DenoWasmHostInstance } from "./deno-wasm-host.js";
 
 export interface DenoBrowserHostOptions {
-  /** Permite rede real no Deno. Padrão: true (browser tem fetch nativo). */
   networkAllowed?: boolean;
-  /** Timeout por execução em ms. Padrão: 30 000. */
   timeoutMs?: number;
-  /** Instala o Service Worker automaticamente. Padrão: true. */
-  autoInstallSW?: boolean;
+  denoWasmUrl: string | URL;
+  fetcher?: typeof fetch;
 }
 
 export class DenoBrowserHost {
-  private readonly stopVfs:  () => void;
-  private swReg?:            ServiceWorkerRegistration;
+  private readonly adapter: DenoLinuxAdapter;
+  private wasm?: DenoWasmHostInstance;
 
   private constructor(
-    private readonly fs:      WexelFileSystem,
-    private readonly channel: ReturnType<typeof createVfsBridgeChannel>,
-    private readonly opts:    Required<DenoBrowserHostOptions>,
+    private readonly fs: WexelFileSystem,
+    options: DenoBrowserHostOptions,
   ) {
-    // Serve o VFS para o Service Worker via SAB
-    this.stopVfs = serveVfsBridge(channel, fs);
+    this.adapter = new DenoLinuxAdapter({
+      fs,
+      networkAllowed: options.networkAllowed ?? false,
+      fetcher: options.fetcher ?? fetch,
+    });
   }
 
-  /** Cria e inicializa o DenoBrowserHost. */
   static async create(
-    fs:      WexelFileSystem,
-    options: DenoBrowserHostOptions = {},
+    fs: WexelFileSystem,
+    options: DenoBrowserHostOptions,
   ): Promise<DenoBrowserHost> {
-    const opts: Required<DenoBrowserHostOptions> = {
-      networkAllowed: true,
-      timeoutMs:      30_000,
-      autoInstallSW:  true,
-      ...options,
-    };
-
-    // Verifica suporte do browser
-    const support = checkBrowserSupport();
-    if (!support.ok) {
-      console.warn(
-        `[Wexel] DenoBrowserHost: recursos ausentes: ${support.missing.join(", ")}.\n` +
-        `Adicione os headers COOP/COEP ao servidor e garanta crossOriginIsolated.`,
-      );
+    if (typeof Worker === "undefined") {
+      throw new Error("Deno WASM no browser requer Web Worker.");
+    }
+    if (typeof SharedArrayBuffer === "undefined" || !crossOriginIsolated) {
+      throw new Error("Deno WASM no browser requer SharedArrayBuffer e crossOriginIsolated.");
     }
 
-    const channel = createVfsBridgeChannel();
-    const host    = new DenoBrowserHost(fs, channel, opts);
-
-    // Instala o Service Worker
-    if (opts.autoInstallSW && "serviceWorker" in navigator) {
-      try {
-        host.swReg = await installDenoServiceWorker();
-        // Envia o SAB para o SW para ele poder servir o VFS
-        host.swReg.active?.postMessage({
-          type: "wexel-vfs-init",
-          ctrl: channel.ctrl,
-          data: channel.data,
-        });
-      } catch (err) {
-        console.warn("[Wexel] Service Worker não instalado:", err);
-      }
-    }
-
+    const host = new DenoBrowserHost(fs, options);
+    host.wasm = await loadDenoWasm(options.denoWasmUrl, { adapter: host.adapter });
     return host;
   }
 
   /**
-   * Executa código JavaScript ou TypeScript no Deno real.
-   *
-   * O código roda via deno-node-sandbox (Node.js worker_thread),
-   * que por sua vez usa o binário nativo do Deno.
-   * O VFS do Wexel está disponível como filesystem real.
-   * A rede usa fetch nativo do browser (via Service Worker).
+   * Executa código somente quando o artefato Deno WASM fornecer um entrypoint
+   * compatível com a ABI Wexel. Instanciar um módulo WASM sozinho não cria um
+   * interpretador Deno, portanto não existe fallback para Node ou shim JS.
    */
   async run(
-    code:     string,
-    language: "javascript" | "typescript",
-    args:     string[] = [],
+    _code: string,
+    _language: "javascript" | "typescript",
+    _args: string[] = [],
   ): Promise<ExecResult> {
-    return runDenoNodeSandbox(
-      this.fs,
-      {
-        networkAllowed: this.opts.networkAllowed,
-        fetcher:        fetch, // fetch nativo do browser
-        timeoutMs:      this.opts.timeoutMs,
-      },
-      { code, language, args },
+    if (!this.wasm) throw new Error("Deno WASM ainda não foi carregado.");
+    throw new Error(
+      "O Deno WASM foi carregado, mas o artefato não expõe um entrypoint de execução Deno compatível com a ABI Wexel. Compile/forneça um Deno WASM real com essa ABI antes de executar código.",
     );
   }
 
-  /** Libera recursos (para o serviço VFS e desregistra o SW). */
-  async dispose(): Promise<void> {
-    this.stopVfs();
-    await this.swReg?.unregister();
+  get wasmInstance(): DenoWasmHostInstance | undefined {
+    return this.wasm;
   }
 
-  /**
-   * URL base do VFS no Service Worker.
-   * Use para referenciar arquivos do VFS em imports do Deno:
-   *   import { foo } from "${host.vfsBaseUrl}/src/foo.ts";
-   */
-  get vfsBaseUrl(): string {
-    return `${location.origin}/wexel-vfs`;
+  dispose(): void {
+    this.adapter.dispose();
+    this.wasm = undefined;
   }
 }
