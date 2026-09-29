@@ -29,11 +29,16 @@ function fsRequest(method, args) {
   const size = Atomics.load(ctrl, 1), bytes = data.slice(0, size); Atomics.store(ctrl, 0, 0);
   const parsed = JSON.parse(new TextDecoder().decode(bytes)); if (parsed.error) throw new Error(parsed.error.message); return parsed.value;
 }
-function fsRead(ptr, len) { const value = fsRequest("read", [text(ptr, len)]); const bytes = value instanceof Uint8Array ? value : new Uint8Array(value); return bytes.byteLength; }
+function allocBytes(bytes) { const alloc = instance?.exports?.wexel_alloc; if (typeof alloc !== "function") throw new Error("wexel_alloc ausente"); const ptr = alloc(bytes.byteLength); view().set(bytes, ptr); return [ptr, bytes.byteLength]; }
+function fsRead(ptr, len) { const value = fsRequest("read", [text(ptr, len)]); return allocBytes(value instanceof Uint8Array ? value : new Uint8Array(value ?? [])); }
 function fsWrite(pathPtr, pathLen, dataPtr, dataLen) { fsRequest("write", [text(pathPtr, pathLen), [...view().slice(dataPtr, dataPtr + dataLen)]]); }
 function fsExists(ptr, len) { return fsRequest("exists", [text(ptr, len)]) ? 1 : 0; }
 function fsMkdir(ptr, len) { fsRequest("mkdir", [text(ptr, len)]); }
 function fsRemove(ptr, len) { fsRequest("remove", [text(ptr, len)]); }
+function fsList(ptr, len) { return allocBytes(new TextEncoder().encode(JSON.stringify(fsRequest("list", [text(ptr, len)])))); }
+function fsCwd() { return allocBytes(new TextEncoder().encode(String(fsRequest("pwd", [])))); }
+function fsCd(ptr, len) { fsRequest("cd", [text(ptr, len)]); }
+function envGet(ptr, len) { return allocBytes(new TextEncoder().encode("")); }
 
 self.onmessage = async (event) => {
   const msg = event.data;
@@ -52,6 +57,10 @@ self.onmessage = async (event) => {
           fs_exists: (ptr, len) => fsExists(ptr, len),
           fs_mkdir: (ptr, len) => fsMkdir(ptr, len),
           fs_remove: (ptr, len) => fsRemove(ptr, len),
+          fs_list: (ptr, len) => fsList(ptr, len),
+          fs_cwd: () => fsCwd(),
+          fs_cd: (ptr, len) => fsCd(ptr, len),
+          env_get: (ptr, len) => envGet(ptr, len),
           stdout_write: (ptr, len) => writeOutput("stdout", ptr, len),
           stderr_write: (ptr, len) => writeOutput("stderr", ptr, len),
           proc_exit: (code) => self.postMessage({ type: "exit", exitCode: code }),
