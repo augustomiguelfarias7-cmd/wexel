@@ -13,6 +13,7 @@ import {
   type DenoNativeOptions,
 } from "./deno-native-adapter.js";
 import type { NetworkFetcher } from "./deno-net-bridge.js";
+import { runDenoBrowser, disposeDenoBrowser } from "./deno-browser-bridge.js";
 
 export const DENO_WASM_ABI_VERSION = 30000;
 export type DenoTarget = "browser" | "node" | "auto";
@@ -69,9 +70,12 @@ export class DenoRuntime {
         );
       }
 
-      throw new Error(
-        "O artefato Deno WASM foi selecionado, mas ainda precisa expor o entrypoint de execução compatível com a ABI Wexel. O loader não vai fingir que um módulo WASM instanciado já é um runtime Deno executável.",
-      );
+      return runDenoBrowser(this.fs, code, language, args, {
+        denoWasmUrl: this.denoWasmUrl,
+        networkAllowed: this.net,
+        fetcher: this.fetcher,
+        timeoutMs: this.timeout,
+      });
     }
 
     const bin = await resolvedenoBin(this.denoBin);
@@ -92,7 +96,9 @@ export class DenoRuntime {
     return this.run(this.fs.readText(path), language, args);
   }
 
-  dispose(): void {}
+  dispose(): void {
+    if (this.target === "browser") void disposeDenoBrowser(this.fs);
+  }
 }
 
 /** Compatibilidade com a API histórica. */
