@@ -704,7 +704,7 @@ export { DenoWasmPool, type DenoWasmTemplate } from "./deno-wasm-pool.js";
 export { DenoBrowserSession, type DenoBrowserSessionOptions } from "./deno-browser-session.js";
 export { DenoNodePool, type DenoNodePoolOptions, type DenoNodeSandboxSession } from "./deno-node-pool.js";
 export { DenoExecutionTopology, type DenoExecutionTopologyOptions } from "./deno-execution.js";
-export { runDenoWasmInstance, type DenoWasmInstanceOptions } from "./deno-wasm-instance.js";
+export { runDenoWasmInstance, createDenoWasmSession, type DenoWasmInstanceOptions, type DenoWasmSession } from "./deno-wasm-instance.js";
 export { runDenoWasm, type DenoWasmAdapterOptions } from "./deno-wasm-adapter.js";
 export { createDenoLinuxHost, type DenoLinuxHostOptions } from "./deno-linux-host.js";
 export { denoLanguageFromPath, isDenoSourcePath, saveDenoSource, readDenoSource, listDenoSources, type DenoSourceLanguage, type DenoSourceFile } from "./deno-vfs.js";
