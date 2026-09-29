@@ -713,6 +713,8 @@ export { createWasmFsChannel, serveWasmFs, WasmFsClient, type WasmFsChannel } fr
 export { DenoNodeNet, createDenoNodeFetcher } from "./deno-node-net.js";
 export { WexelPersistentFS, WexelIDBFS, type PersistentFSOptions } from "./persistent-fs.js";
 export { createDenoNativeRunner, resolvedenoBin, type DenoNativeOptions } from "./deno-native-adapter.js";
+export { DENO_LINUX_WASM_ABI, translateDenoLinuxSyscall, type DenoLinuxSyscall, type DenoLinuxWasmCall, type DenoLinuxWasmHost, type DenoLinuxWasmResult } from "./deno-linux-wasm-translator.js";
+export { DenoLinuxWasmHostBridge, type DenoLinuxWasmHostOptions } from "./deno-linux-wasm-host.js";
 export { WexelGit, type GitOptions } from "./git.js";
 export { runCurl, type CurlOptions, type CurlResult } from "./curl.js";
 export { DenoPackageManager, type DenoPackageManagerOptions } from "./deno-package-manager.js";
