@@ -407,19 +407,7 @@ multic run program.cpp
 
 The sections are compiled concurrently and their results are aggregated deterministically as C first and C++ second. The native runtime artifacts live under `packages/wexel/assets/multic/`.
 
-MultiC runtime artifacts can be rebuilt with:
-
-```bash
-pnpm build:multic
-```
-
-or directly:
-
-```bash
-bash scripts/build-multic-runtimes.sh
-```
-
-The script uses `clang` and `clang++` targeting `wasm32`. You can override the compiler paths with `WEXEL_CLANG` and `WEXEL_CLANGXX`.
+The C and C++ runtime artifacts are bundled directly in the repository as WebAssembly binaries. They are loaded from `packages/wexel/assets/multic/` and are not generated as part of the normal Wexel build.
 
 ## RustV
 
@@ -545,7 +533,6 @@ pnpm test
 pnpm typecheck
 pnpm clean
 pnpm build:busybox
-pnpm build:multic
 ```
 
 The root `package.json` defines:
@@ -556,8 +543,7 @@ The root `package.json` defines:
   "test": "pnpm --filter wexel test",
   "typecheck": "pnpm --filter wexel typecheck",
   "clean": "rm -rf packages/*/dist",
-  "build:busybox": "bash scripts/build-busybox.sh",
-  "build:multic": "bash scripts/build-multic-runtimes.sh"
+  "build:busybox": "bash scripts/build-busybox.sh"
 }
 ```
 
@@ -613,29 +599,9 @@ pnpm clean
 pnpm build:busybox
 ```
 
-## MultiC Runtime Build
+## MultiC Runtime Artifacts
 
-Build the bundled C and C++ WebAssembly runtime artifacts with the native Clang toolchain:
-
-```bash
-pnpm build:multic
-```
-
-Equivalent direct command:
-
-```bash
-bash scripts/build-multic-runtimes.sh
-```
-
-To use specific compiler binaries:
-
-```bash
-WEXEL_CLANG=/path/to/clang \
-WEXEL_CLANGXX=/path/to/clang++ \
-bash scripts/build-multic-runtimes.sh
-```
-
-The generated artifacts are written to:
+The C and C++ MultiC runtimes are committed directly as WebAssembly artifacts:
 
 ```text
 packages/wexel/assets/multic/
@@ -643,6 +609,8 @@ packages/wexel/assets/multic/
 ├── cpp-runtime.wasm
 └── manifest.json
 ```
+
+These binaries are shipped with the repository and are not regenerated automatically during `pnpm build`.
 
 ## Project Structure
 
