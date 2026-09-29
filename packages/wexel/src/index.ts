@@ -700,6 +700,7 @@ export { compileNativeSource, runNativeSource, type CompileOptions, type Compile
 export { parseMultiC, runMultiCFile, runMultiCSource, runMultiCVfs, type MultiCOptions, type MultiCResult, type MultiCSection, type MultiCLanguage } from "./multic.js";
 export { RustV, type RustVOptions } from "./rustv.js";
 export { DenoWasmRuntime, DenoRuntime, DENO_WASM_ABI_VERSION } from "./deno-wasm.js";
+export { instantiateDenoWasm, loadDenoWasm, DENO_WASM_HOST_ABI, type DenoWasmHostOptions, type DenoWasmHostInstance } from "./deno-wasm-host.js";
 export { DenoBrowserHost, type DenoBrowserHostOptions } from "./deno-browser-host.js";
 export { runDenoBrowser, disposeDenoBrowser, isBrowserDenoSupported } from "./deno-browser-bridge.js";
 export { installDenoServiceWorker, uninstallDenoServiceWorker, getRequiredHeaders, checkBrowserSupport } from "./deno-service-worker.js";
