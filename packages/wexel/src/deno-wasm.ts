@@ -12,11 +12,6 @@
 
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import {
-  runDenoWorker,
-  createDenoWorkerBlobUrl,
-  type DenoWorkerOptions,
-} from "./deno-worker.js";
-import {
   runDenoNodeSandbox,
   type DenoNodeSandboxOptions,
 } from "./deno-node-sandbox.js";
@@ -51,11 +46,8 @@ export interface DenoRuntimeOptions {
    * Se omitido, resolvido automaticamente: DENO_BIN → assets/deno/deno → PATH.
    */
   denoBin?: string;
-  /**
-   * URL do script do Worker (apenas browser).
-   * Se omitido, um Blob URL é gerado automaticamente.
-   */
-  workerScriptUrl?: string | URL;
+  /** URL opcional do artefato Deno WASM real. */
+  denoWasmUrl?: string | URL;
 }
 
 function detectTarget(): "browser" | "node" {
@@ -86,8 +78,7 @@ export class DenoRuntime {
   private readonly net:       boolean;
   private readonly timeout:   number;
   private readonly denoBin?:  string;
-  private readonly workerUrl: string | URL;
-  private _blobUrl?: string;
+  private readonly denoWasmUrl?: string | URL;
 
   private constructor(opts: DenoRuntimeOptions) {
     this.target   = (opts.target === "auto" || !opts.target) ? detectTarget() : opts.target;
@@ -96,7 +87,7 @@ export class DenoRuntime {
     this.net      = opts.networkAllowed ?? false;
     this.timeout  = opts.timeoutMs ?? 30_000;
     this.denoBin  = opts.denoBin;
-    this.workerUrl = opts.workerScriptUrl ?? "";
+    this.denoWasmUrl = opts.denoWasmUrl;
   }
 
   static create(opts: DenoRuntimeOptions): DenoRuntime {
@@ -133,28 +124,18 @@ export class DenoRuntime {
     language: "javascript" | "typescript",
     args:     string[],
   ): Promise<ExecResult> {
-    // Tenta usar o Deno real via DenoBrowserHost (SAB + Service Worker + Node sandbox)
-    try {
-      const { runDenoBrowser, isBrowserDenoSupported } = await import("./deno-browser-bridge.js");
-      if (isBrowserDenoSupported()) {
-        return await runDenoBrowser(this.fs, code, language, args, {
-          networkAllowed: this.net,
-          timeoutMs:      this.timeout,
-        });
-      }
-    } catch {
-      // SAB ou SW não disponível — cai no shim JS abaixo
+    const { runDenoBrowser, isBrowserDenoSupported } = await import("./deno-browser-bridge.js");
+    if (!isBrowserDenoSupported()) {
+      throw new Error(
+        "Deno browser requer SharedArrayBuffer, crossOriginIsolated e Service Worker. " +
+        "O Wexel não usa mais o shim JavaScript como fallback.",
+      );
     }
-
-    // Fallback: shim JS (browser sem crossOriginIsolated ou sem SW)
-    const url = this.workerUrl || this.ensureBlobUrl();
-    const opts: DenoWorkerOptions = {
-      workerScriptUrl: url,
-      networkAllowed:  this.net,
-      fetcher:         this.fetcher,
-      timeoutMs:       this.timeout,
-    };
-    return runDenoWorker(this.fs, opts, { code, language, args });
+    return runDenoBrowser(this.fs, code, language, args, {
+      networkAllowed: this.net,
+      timeoutMs: this.timeout,
+      denoWasmUrl: this.denoWasmUrl,
+    });
   }
 
   private async runNode(
@@ -182,20 +163,7 @@ export class DenoRuntime {
     }
   }
 
-  private ensureBlobUrl(): string {
-    if (!this._blobUrl) {
-      this._blobUrl = createDenoWorkerBlobUrl();
-    }
-    return this._blobUrl;
-  }
-
-  /** Libera o Blob URL gerado automaticamente (se houver). */
-  dispose(): void {
-    if (this._blobUrl) {
-      URL.revokeObjectURL(this._blobUrl);
-      this._blobUrl = undefined;
-    }
-  }
+  dispose(): void {}
 }
 
 /**
