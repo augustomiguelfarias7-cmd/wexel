@@ -13,8 +13,7 @@
     "typecheck": "pnpm --filter wexel typecheck",
     "clean": "rm -rf packages/*/dist",
     "build:busybox": "bash scripts/build-busybox.sh",
-    "bootstrap:emscripten": "bash scripts/bootstrap-emscripten.sh",
-    "build:multic": "bash scripts/build-multic-runtimes.sh"
+    "bootstrap:emscripten": "bash scripts/bootstrap-emscripten.sh"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
