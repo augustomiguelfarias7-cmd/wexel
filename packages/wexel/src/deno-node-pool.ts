@@ -8,7 +8,7 @@
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import type { DenoWasmArtifactSource } from "./deno-portable-wasm.js";
 import { DenoWasmPool } from "./deno-wasm-pool.js";
-import { runDenoWasmInstance } from "./deno-wasm-instance.js";
+import { createDenoWasmSession } from "./deno-wasm-instance.js";
 import type { NetworkFetcher } from "./deno-net-bridge.js";
 
 export interface DenoNodePoolOptions {
@@ -42,18 +42,12 @@ export class DenoNodePool {
   }): DenoNodeSandboxSession {
     if (this.sessions.has(options.id)) throw new Error(`Sandbox Deno já existe: ${options.id}`);
 
-    const session: DenoNodeSandboxSession = {
+    let sessionPromise: ReturnType<typeof createDenoWasmSession> | undefined;\n    const session: DenoNodeSandboxSession = {
       id: options.id,
       run: async (code, language, args = []) => {
-        const template = await this.pool.template();
-        return runDenoWasmInstance({
-          module: template.module,
-          fs: options.fs,
-          networkAllowed: options.networkAllowed ?? false,
-          fetcher: options.fetcher,
-        }, code, language, args);
+        if (!sessionPromise) {\n          const template = await this.pool.template();\n          sessionPromise = createDenoWasmSession({ module: template.module, fs: options.fs, networkAllowed: options.networkAllowed ?? false, fetcher: options.fetcher });\n        }\n        return (await sessionPromise).run(code, language, args);
       },
-      dispose: () => { this.sessions.delete(options.id); },
+      dispose: () => { this.sessions.delete(options.id); void sessionPromise?.then((session) => session.dispose()); },
     };
 
     this.sessions.set(options.id, session);
