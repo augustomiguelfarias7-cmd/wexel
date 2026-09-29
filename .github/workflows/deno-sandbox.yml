@@ -1,0 +1,46 @@
+name: Wexel Deno Sandbox Integration
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "packages/wexel/src/deno-native-adapter.ts"
+      - "packages/wexel/src/deno-vfs.ts"
+      - "packages/wexel/test/deno-native-integration.mjs"
+      - "packages/wexel/assets/deno/deno.gz"
+      - ".github/workflows/deno-sandbox.yml"
+
+jobs:
+  deno-sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Wexel
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Wexel
+        run: pnpm --filter wexel build
+
+      - name: Verify compressed Deno asset
+        shell: bash
+        run: |
+          test -s packages/wexel/assets/deno/deno.gz
+          echo "deno.gz exists: $(du -h packages/wexel/assets/deno/deno.gz | cut -f1)"
+
+      - name: Run real Deno Linux sandbox tests
+        run: node packages/wexel/test/deno-native-integration.mjs
