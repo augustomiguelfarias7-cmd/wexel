@@ -45,7 +45,7 @@ For a project that consumes the package directly from Git:
 npm install git+https://github.com/augustomiguelfarias7-cmd/wexel.git
 ```
 
-The repository is structured as a pnpm workspace containing the public `wexel` package and the internal `@wexel/core` package.
+The repository is structured as an npm workspace containing the public `wexel` package and the internal `@wexel/core` package.
 
 ## Quick Start
 
@@ -83,7 +83,7 @@ Wexel Runtime
     ├── Permissions
     ├── Storage Quota
     │
-    ├── Deno WASM
+    ├── Deno native runtime
     ├── CPython / WASI
     ├── BusyBox
     ├── Native WASM Extensions
@@ -115,7 +115,7 @@ Each sandbox is created independently and receives its own runtime instance and 
 
 ## Deno
 
-Wexel 3.0 ships Deno 2.3.5 as a native binary (`assets/deno/deno.gz`). The `DenoRuntime` detects the environment automatically and runs the real Deno in both browser and Node.js.
+Wexel 3.0 ships Deno 2.3.5 as a bundled native runtime (`assets/deno/deno.gz`). `DenoRuntime` selects the appropriate execution path for the target environment.
 
 ```ts
 import { DenoRuntime, Wexel } from "wexel";
@@ -142,7 +142,7 @@ await runtime.shell.exec("deno run /app.ts");
 // Package management
 await runtime.shell.exec("deno add jsr:@std/path");
 await runtime.shell.exec("npm install lodash");
-await runtime.shell.exec("pnpm install axios");
+await runtime.shell.exec("npm install axios");
 ```
 
 Supported shell commands:
@@ -155,10 +155,10 @@ deno install
 deno --version
 node <file.js>
 npm install <pkg>
-pnpm install <pkg>
+npm install <pkg>
 ```
 
-**Browser:** requires `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` headers for the real Deno via SharedArrayBuffer. Falls back to a JS shim automatically without those headers.
+**Browser:** uses the Wexel browser execution bridge and VFS. When the browser cannot provide the required isolation primitives, Wexel falls back to its JavaScript compatibility path.
 
 **Node.js:** uses the native `deno.gz` binary decompressed at first run. No download required.
 
@@ -519,29 +519,29 @@ import { createWasiPythonRunner } from "wexel/node";
 
 ## Development
 
-Wexel is a pnpm workspace.
+Wexel is an npm workspace.
 
 ```bash
-pnpm install
+npm install
 ```
 
 ### Root scripts
 
 ```bash
-pnpm build
-pnpm test
-pnpm typecheck
-pnpm clean
-pnpm build:busybox
+npm run build
+npm test
+npm run typecheck
+npm run clean
+npm run build:busybox
 ```
 
 The root `package.json` defines:
 
 ```json
 {
-  "build": "pnpm --filter @wexel/core build && node scripts/build-core.mjs && pnpm --filter wexel build && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm && node scripts/check-browser-budget.mjs",
-  "test": "pnpm --filter wexel test",
-  "typecheck": "pnpm --filter wexel typecheck",
+  "build": "pnpm --filter @wexel/core build && node scripts/build-core.mjs && npm run build --workspace=wexel && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm && node scripts/check-browser-budget.mjs",
+  "test": "npm run test --workspace=wexel",
+  "typecheck": "npm run typecheck --workspace=wexel",
   "clean": "rm -rf packages/*/dist",
   "build:busybox": "bash scripts/build-busybox.sh"
 }
@@ -610,7 +610,7 @@ packages/wexel/assets/multic/
 └── manifest.json
 ```
 
-These binaries are shipped with the repository and are not regenerated automatically during `pnpm build`.
+These binaries are shipped with the repository and are not regenerated automatically during `npm run build`.
 
 ## Project Structure
 
@@ -667,7 +667,7 @@ Current package version:
 3.0.0
 ```
 
-Wexel 3.0 introduced the Deno WASM runtime, NodeExecution sandbox manager, WebPink networking layer, Linux-like VFS improvements and associated package/export updates.
+Wexel 3.0 introduced the Deno runtime integration, NodeExecution sandbox manager, WebPink networking layer, Linux-like VFS improvements and associated package/export updates.
 
 ## License
 
