@@ -8,9 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "pnpm --filter @wexel/core build && node scripts/build-core.mjs && pnpm --filter wexel build && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm && node scripts/check-browser-budget.mjs",
-    "test": "pnpm --filter wexel test",
-    "typecheck": "pnpm --filter wexel typecheck",
+    "build": "npm run build --workspace=@wexel/core && node scripts/build-core.mjs && npm run build --workspace=wexel && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm && node scripts/check-browser-budget.mjs",
+    "test": "npm run test --workspace=wexel",
+    "typecheck": "npm run typecheck --workspace=wexel",
     "clean": "rm -rf packages/*/dist",
     "build:busybox": "bash scripts/build-busybox.sh",
     "bootstrap:emscripten": "bash scripts/bootstrap-emscripten.sh"
