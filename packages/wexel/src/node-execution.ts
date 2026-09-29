@@ -108,9 +108,7 @@ export class NodeExecution {
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
       fs: options.fs,
       denoRuntime: this.options.denoRuntime,
-      denoRunner: nativeDeno
-        ? createDenoNativeRunnerPlaceholder(nativeDeno, sandboxFetcher)
-        : useLegacyWorker
+      denoRunner: useLegacyWorker
           ? (code, language, args) => runDenoNodeWorker(
               runtime.fs,
               {
@@ -134,6 +132,13 @@ export class NodeExecution {
       nativeCliBytes: this.options.nativeCliBytes,
       nativeExtensions: this.options.nativeExtensions,
     });
+
+    if (nativeDeno) {
+      runtime.attachDenoRunner(createDenoNativeRunner(runtime.fs, {
+        ...nativeDeno,
+        env: { WEXEL_SANDBOX_ID: id },
+      }));
+    }
 
     const sandbox = { id, runtime, createdAt: Date.now(), webPink };
     this.sandboxes.set(id, sandbox);
@@ -159,18 +164,3 @@ export class NodeExecution {
   }
 }
 
-/**
- * Cria o runner depois que WexelRuntime existe. A função devolvida captura
- * o runtime somente no momento da execução, evitando depender de uma VFS
- * inexistente durante a construção do objeto Wexel.
- */
-function createDenoNativeRunnerPlaceholder(
-  options: DenoNativeOptions,
-  fetcher?: typeof fetch,
-) {
-  return async function run(code: string, language: "javascript" | "typescript", args: string[]): Promise<import("./index.js").ExecResult> {
-    throw new Error(
-      "Deno native runner precisa ser conectado à VFS da sandbox antes da execução. Use DenoRuntime.create({ fs }) ou configure o runner explicitamente.",
-    );
-  };
-}
