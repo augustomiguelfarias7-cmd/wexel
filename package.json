@@ -13,7 +13,8 @@
     "typecheck": "npm run typecheck --workspace=wexel",
     "clean": "rm -rf packages/*/dist",
     "build:busybox": "bash scripts/build-busybox.sh",
-    "bootstrap:emscripten": "bash scripts/bootstrap-emscripten.sh"
+    "bootstrap:emscripten": "bash scripts/bootstrap-emscripten.sh",
+    "prepare:deno-wasm": "node scripts/prepare-deno-wasm-asset.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
