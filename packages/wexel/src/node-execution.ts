@@ -81,7 +81,6 @@ export class NodeExecution {
     if (busyBoxOptions && !busyBoxOptions.wasmSource && !busyBoxOptions.wasmUrl) throw new Error("Node Execution requer busyBox.wasmSource ou busyBox.wasmUrl.");
     const busyBox = busyBoxOptions ? await createBusyBoxRunner(busyBoxOptions.factory, busyBoxOptions.wasmSource ?? busyBoxOptions.wasmUrl!) : undefined;
     const execution = new NodeExecution(options, busyBox, options.webPink ? new WebPink(options.webPink) : undefined);
-    if (execution.denoPool) await execution.denoPool.warmup();
     return execution;
   }
 
