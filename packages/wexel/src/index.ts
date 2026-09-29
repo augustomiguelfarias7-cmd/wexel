@@ -705,7 +705,6 @@ export { runDenoBrowser, disposeDenoBrowser, isBrowserDenoSupported } from "./de
 export { installDenoServiceWorker, uninstallDenoServiceWorker, getRequiredHeaders, checkBrowserSupport } from "./deno-service-worker.js";
 export { createWasmFsChannel, serveWasmFs, WasmFsClient, type WasmFsChannel } from "./deno-wasm-fs.js";
 export { runDenoWasmWorker, type DenoWasmWorkerOptions } from "./deno-wasm-worker.js";
-export { runDenoWasmRuntime, type DenoWasmRuntimeOptions } from "./deno-wasm-runtime.js";
 export { DenoNodeNet, createDenoNodeFetcher } from "./deno-node-net.js";
 export { WexelPersistentFS, WexelIDBFS, type PersistentFSOptions } from "./persistent-fs.js";
 export { createDenoNativeRunner, resolvedenoBin, type DenoNativeOptions } from "./deno-native-adapter.js";
