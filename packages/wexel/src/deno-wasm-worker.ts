@@ -18,7 +18,6 @@
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import { createWasmFsChannel, serveWasmFs } from "./deno-wasm-fs.js";
 import { NetBridgeHost } from "./deno-net-bridge.js";
-import { DenoLinuxAdapter } from "./deno-linux-adapter.js";
 
 export interface DenoWasmWorkerOptions {
   networkAllowed?: boolean;
@@ -37,14 +36,16 @@ export async function runDenoWasmWorker(
   fs:      WexelFileSystem,
   options: DenoWasmWorkerOptions,
   exec:    DenoWasmExecOptions,
-  linuxAdapter?: DenoLinuxAdapter,
 ): Promise<ExecResult> {
-  const adapter = linuxAdapter ?? new DenoLinuxAdapter({ fs, networkAllowed: options.networkAllowed, fetcher: options.fetcher ?? fetch });
-  const fsChannel = adapter.fsChannel;
+  const fsChannel = createWasmFsChannel();
+  const { port1: netMain,  port2: netWorker  } = new MessageChannel();
   const { port1: ioMain,   port2: ioWorker   } = new MessageChannel();
 
-  // O Linux adapter já mantém o VFS e a política de rede do host.
-  // O worker recebe os canais do adapter, nunca um objeto Deno fake.
+  // Serve VFS na thread principal
+  const stopFs = serveWasmFs(fsChannel, fs);
+
+  // Serve rede na thread principal
+  const netHost = new NetBridgeHost(netMain, options.fetcher ?? fetch, options.networkAllowed ?? false);
 
   // Gera o script do Worker inline (sem arquivo externo)
   const src  = buildWorkerScript();
@@ -66,7 +67,8 @@ export async function runDenoWasmWorker(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      if (!linuxAdapter) adapter.dispose();
+      stopFs();
+      netHost.dispose();
       worker.terminate();
       resolve({ stdout: stdout.join(""), stderr: stderr.join("") + (extra ?? ""), exitCode });
     }
@@ -82,11 +84,11 @@ export async function runDenoWasmWorker(
 
     // Init — envia channel e ports para o Worker
     worker.postMessage(
-      { type: "init", fsSab: fsChannel.sab, home: fs.home, code: exec.code, language: exec.language, args: exec.args ?? [], abiVersion: adapter.workerInit().abiVersion },
-      [adapter.workerInit().netPort, ioWorker],
+      { type: "init", fsSab: fsChannel.sab, home: fs.home, code: exec.code, language: exec.language, args: exec.args ?? [] },
+      [netWorker, ioWorker],
     );
     // Ports em mensagem separada para garantir recebimento após init
-    worker.postMessage({ type: "ports", netPort: adapter.workerInit().netPort, ioPort: ioWorker });
+    worker.postMessage({ type: "ports", netPort: netWorker, ioPort: ioWorker });
   });
 }
 
@@ -106,7 +108,6 @@ let fsCtrl, fsBuf, netPort, ioPort, initData;
 self.onmessage = (ev) => {
   if (ev.data.type === "init") {
     initData = ev.data;
-    linuxAbiVersion = ev.data.abiVersion;
     fsCtrl   = new Int32Array(ev.data.fsSab, 0, 2);
     fsBuf    = new Uint8Array(ev.data.fsSab, HEADER, CAP);
     netPort  = ev.data.netPort;
