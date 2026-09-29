@@ -707,6 +707,7 @@ export { DenoWasmRuntime, DenoRuntime, DENO_WASM_ABI_VERSION } from "./deno-wasm
 export { instantiateDenoWasm, loadDenoWasm, DENO_WASM_HOST_ABI, type DenoWasmHostOptions, type DenoWasmHostInstance } from "./deno-wasm-host.js";
 export { DenoLinuxAdapter, DENO_LINUX_ADAPTER_ABI, DENO_LINUX_HOST_CALLS, type DenoLinuxAdapterOptions, type DenoLinuxHostCall } from "./deno-linux-adapter.js";
 export { DenoBrowserHost, type DenoBrowserHostOptions } from "./deno-browser-host.js";
+export { DENO_BROWSER_ENTRYPOINT, createDenoBrowserWorkerSource } from "./deno-browser-worker.js";
 export { runDenoBrowser, disposeDenoBrowser, isBrowserDenoSupported } from "./deno-browser-bridge.js";
 export { createWasmFsChannel, serveWasmFs, WasmFsClient, type WasmFsChannel } from "./deno-wasm-fs.js";
 export { DenoNodeNet, createDenoNodeFetcher } from "./deno-node-net.js";
