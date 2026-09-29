@@ -700,6 +700,13 @@ export { compileNativeSource, runNativeSource, type CompileOptions, type Compile
 export { parseMultiC, runMultiCFile, runMultiCSource, runMultiCVfs, type MultiCOptions, type MultiCResult, type MultiCSection, type MultiCLanguage } from "./multic.js";
 export { RustV, type RustVOptions } from "./rustv.js";
 export { DenoWasmRuntime, DenoRuntime, DENO_WASM_ABI_VERSION } from "./deno-wasm.js";
+export { DenoWasmPool, type DenoWasmTemplate } from "./deno-wasm-pool.js";
+export { DenoBrowserSession, type DenoBrowserSessionOptions } from "./deno-browser-session.js";
+export { DenoNodePool, type DenoNodePoolOptions, type DenoNodeSandboxSession } from "./deno-node-pool.js";
+export { DenoExecutionTopology, type DenoExecutionTopologyOptions } from "./deno-execution.js";
+export { runDenoWasmInstance, type DenoWasmInstanceOptions } from "./deno-wasm-instance.js";
+export { runDenoWasm, type DenoWasmAdapterOptions } from "./deno-wasm-adapter.js";
+export { denoLanguageFromPath, isDenoSourcePath, saveDenoSource, readDenoSource, listDenoSources, type DenoSourceLanguage, type DenoSourceFile } from "./deno-vfs.js";
 export { loadDenoWasmArtifact, validateDenoWasmExports, type DenoWasmArtifact, type DenoWasmArtifactSource } from "./deno-portable-wasm.js";
 export { DenoBrowserHost, type DenoBrowserHostOptions } from "./deno-browser-host.js";
 export { runDenoBrowser, disposeDenoBrowser, isBrowserDenoSupported } from "./deno-browser-bridge.js";
