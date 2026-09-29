@@ -184,3 +184,17 @@ console.log(result.stdout);
 ```
 
 O arquivo é copiado da VFS para o diretório temporário da sandbox, executado pelo Deno e o stdout/stderr/exit code retornam ao Wexel. O binário nativo do Deno não é tratado como WASM. O caminho browser continua separado e exige um artefato Deno WASM real.
+## Contrato do Deno WASM no browser
+
+O Browser Host agora cria um DedicatedWorker real e instancia o artefato WASM dentro dele. O módulo precisa expor:
+
+- `memory`
+- `wexel_alloc(ptr)`
+- `wexel_deno_run(ptr, len)`
+- opcionalmente `wexel_runtime_init()`
+
+O payload enviado a `wexel_deno_run` é JSON contendo `code`, `language` e `args`. As chamadas de filesystem usam a ABI `__wexel_host` e são roteadas para a VFS pelo `SharedArrayBuffer`. stdout/stderr voltam do Worker para o Wexel.
+
+Importante: `packages/wexel-core/src/deno-runtime.wat` e o `deno-runtime.wasm` histórico são somente uma ponte ABI do Wexel. Eles não são o runtime Deno. Portanto, o Wexel não os apresenta como Deno e não os usa para fingir execução JavaScript/TypeScript.
+
+Quando um artefato Deno WASM real for fornecido, ele pode ser apontado por `denoWasmUrl` e será executado por esse caminho sem fallback para Node, shim JavaScript ou Service Worker.
