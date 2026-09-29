@@ -3,7 +3,8 @@ import { createBusyBoxRunner, type BusyBoxFactory } from "./busybox.js";
 import { createWasiPythonRunner, type WasiPythonOptions } from "./node-cpython.js";
 import { nodeWasiPythonRunnerFactory, type NodeWasiPythonOptions } from "./node-wasi-python.js";
 import { DenoWasmRuntime } from "./deno-wasm.js";
-import { runDenoNodeWorker } from "./deno-node-worker.js";
+import { DenoNodePool, type DenoNodeSandboxSession } from "./deno-node-pool.js";
+import type { DenoWasmArtifactSource } from "./deno-portable-wasm.js";
 import { Wexel, type WexelPermissions, type WexelRuntime } from "./index.js";
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
@@ -25,6 +26,8 @@ export interface NodeExecutionOptions {
    * A rede passa automaticamente pelo WebPink da sandbox.
    * Padrão: true quando denoRuntime não está definido.
    */
+  denoWasmArtifact?: DenoWasmArtifactSource;
+  /** @deprecated O Node Execution agora usa Deno WASM real por padrão. */
   denoNodeWorker?: boolean;
   /** CPython via Wasmtime (legado). */
   python?: Omit<WasiPythonOptions, "fs">;
@@ -54,6 +57,7 @@ export interface BackendSandbox {
   runtime: WexelRuntime;
   createdAt: number;
   webPink?: WebPinkClient;
+  denoSession?: DenoNodeSandboxSession;
 }
 
 /**
@@ -64,25 +68,29 @@ export interface BackendSandbox {
 export class NodeExecution {
   private readonly sandboxes = new Map<string, BackendSandbox>();
   private readonly busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>;
+  private readonly denoPool?: DenoNodePool;
   readonly webPink?: WebPink;
   private constructor(private readonly options: NodeExecutionOptions, busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>, webPink?: WebPink) {
     this.busyBox = busyBox;
     this.webPink = webPink;
+    this.denoPool = options.denoRuntime ? undefined : new DenoNodePool({ artifact: options.denoWasmArtifact });
   }
 
   static async create(options: NodeExecutionOptions): Promise<NodeExecution> {
     const busyBoxOptions = options.busyBox;
     if (busyBoxOptions && !busyBoxOptions.wasmSource && !busyBoxOptions.wasmUrl) throw new Error("Node Execution requer busyBox.wasmSource ou busyBox.wasmUrl.");
     const busyBox = busyBoxOptions ? await createBusyBoxRunner(busyBoxOptions.factory, busyBoxOptions.wasmSource ?? busyBoxOptions.wasmUrl!) : undefined;
-    return new NodeExecution(options, busyBox, options.webPink ? new WebPink(options.webPink) : undefined);
+    const execution = new NodeExecution(options, busyBox, options.webPink ? new WebPink(options.webPink) : undefined);
+    if (execution.denoPool) await execution.denoPool.warmup();
+    return execution;
   }
 
   async createSandbox(options: SandboxOptions = {}): Promise<BackendSandbox> {
     const id = options.id ?? randomUUID();
     if (this.sandboxes.has(id)) throw new Error(`Sandbox já existe: ${id}`);
     const webPink = this.webPink?.createClient(id, options.webPink);
-    const useNodeWorker = this.options.denoNodeWorker !== false && !this.options.denoRuntime;
     const sandboxFetcher = webPink?.fetch.bind(webPink) as typeof fetch | undefined;
+    let denoSession: DenoNodeSandboxSession | undefined;
 
     const runtime = await Wexel.create({
       coreBytes: this.options.coreBytes,
