@@ -8,9 +8,12 @@ export interface DenoLinuxHostOptions {
   output: { stdout: string[]; stderr: string[]; exitCode: number };
 }
 
+type Fd = { path: string; offset: number; writable: boolean };
+
 export function createDenoLinuxHost(options: DenoLinuxHostOptions) {
   let memory: WebAssembly.Memory | undefined;
-
+  let nextFd = 3;
+  const fds = new Map<number, Fd>();
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
@@ -52,36 +55,90 @@ export function createDenoLinuxHost(options: DenoLinuxHostOptions) {
     return 5;
   };
 
+  const resolveFd = (fd: number): Fd => {
+    const entry = fds.get(fd);
+    if (!entry) throw new Error("bad file descriptor");
+    return entry;
+  };
+
   return {
-    bindMemory(value: WebAssembly.Memory) {
-      memory = value;
-    },
+    bindMemory(value: WebAssembly.Memory) { memory = value; },
 
     imports: {
       __wexel_linux: {
-        fs_open: (pathPtr: number) => {
-          const path = readCString(pathPtr);
-          return options.fs.exists(path) ? 3 : -errno(new Error("file inexistente"));
+        fs_open: (pathPtr: number, flags: number, _mode: number) => {
+          try {
+            const path = readCString(pathPtr);
+            const writable = (flags & 1) !== 0 || (flags & 2) !== 0;
+            if (!options.fs.exists(path)) {
+              if ((flags & 0x40) === 0) return -2;
+              options.fs.write(path, new Uint8Array());
+            }
+            const fd = nextFd++;
+            fds.set(fd, { path, offset: 0, writable });
+            return fd;
+          } catch (error) {
+            return -errno(error);
+          }
         },
 
-        fs_close: (_fd: number) => 0,
+        fs_close: (fd: number) => fds.delete(fd) ? 0 : -9,
 
-        fs_read: (_fd: number, _dstPtr: number, _len: number) => -38,
+        fs_read: (fd: number, dstPtr: number, len: number) => {
+          try {
+            const file = resolveFd(fd);
+            const data = options.fs.read(file.path);
+            const chunk = data.subarray(file.offset, file.offset + (len >>> 0));
+            writeBytes(dstPtr, chunk);
+            file.offset += chunk.byteLength;
+            return chunk.byteLength;
+          } catch (error) {
+            return -errno(error);
+          }
+        },
 
-        fs_write: (_fd: number, _srcPtr: number, _len: number) => -38,
+        fs_write: (fd: number, srcPtr: number, len: number) => {
+          try {
+            const file = resolveFd(fd);
+            if (!file.writable) return -13;
+            const old = options.fs.read(file.path);
+            const incoming = readBytes(srcPtr, len);
+            const next = new Uint8Array(Math.max(old.byteLength, file.offset + incoming.byteLength));
+            next.set(old);
+            next.set(incoming, file.offset);
+            options.fs.write(file.path, next);
+            file.offset += incoming.byteLength;
+            return incoming.byteLength;
+          } catch (error) {
+            return -errno(error);
+          }
+        },
 
-        fs_seek: (_fd: number, _offset: number, _whence: number) => -38,
+        fs_seek: (fd: number, offset: number, whence: number) => {
+          try {
+            const file = resolveFd(fd);
+            const size = options.fs.read(file.path).byteLength;
+            const base = whence === 0 ? 0 : whence === 1 ? file.offset : size;
+            const next = base + Number(offset);
+            if (next < 0) return -22;
+            file.offset = next;
+            return next;
+          } catch (error) {
+            return -errno(error);
+          }
+        },
 
         fs_stat: (pathPtr: number, outPtr: number) => {
           try {
             const path = readCString(pathPtr);
-            const isDir = options.fs.exists(path) && options.fs.list(path).length >= 0;
             if (!options.fs.exists(path)) return -2;
             if (!memory) return -5;
             const view = new DataView(memory.buffer);
+            const isDir = options.fs.list(path).length >= 0;
+            const size = isDir ? 0 : options.fs.read(path).byteLength;
             view.setUint32(outPtr, isDir ? 2 : 1, true);
             view.setUint32(outPtr + 4, isDir ? 0o755 : 0o644, true);
-            view.setBigUint64(outPtr + 8, BigInt(isDir ? 0 : options.fs.read(path).byteLength), true);
+            view.setBigUint64(outPtr + 8, BigInt(size), true);
             view.setBigUint64(outPtr + 16, BigInt(Date.now()) * 1_000_000n, true);
             return 0;
           } catch (error) {
@@ -90,28 +147,22 @@ export function createDenoLinuxHost(options: DenoLinuxHostOptions) {
         },
 
         fs_mkdir: (pathPtr: number, _mode: number) => {
-          try {
-            options.fs.mkdir(readCString(pathPtr));
-            return 0;
-          } catch (error) {
-            return -errno(error);
-          }
+          try { options.fs.mkdir(readCString(pathPtr)); return 0; }
+          catch (error) { return -errno(error); }
         },
 
         fs_unlink: (pathPtr: number) => {
-          try {
-            options.fs.remove(readCString(pathPtr));
-            return 0;
-          } catch (error) {
-            return -errno(error);
-          }
+          try { options.fs.remove(readCString(pathPtr)); return 0; }
+          catch (error) { return -errno(error); }
         },
 
         fs_rename: (oldPtr: number, newPtr: number) => {
           try {
-            const data = options.fs.read(readCString(oldPtr));
-            options.fs.write(readCString(newPtr), data);
-            options.fs.remove(readCString(oldPtr));
+            const oldPath = readCString(oldPtr);
+            const newPath = readCString(newPtr);
+            const data = options.fs.read(oldPath);
+            options.fs.write(newPath, data);
+            options.fs.remove(oldPath);
             return 0;
           } catch (error) {
             return -errno(error);
@@ -121,7 +172,6 @@ export function createDenoLinuxHost(options: DenoLinuxHostOptions) {
         fs_getcwd: (dstPtr: number, len: number) => writeCString(dstPtr, len, options.fs.pwd()),
 
         env_get: (keyPtr: number, valuePtr: number, len: number) => {
-          const key = readCString(keyPtr);
           const values: Record<string, string> = {
             HOME: options.fs.home,
             PATH: "/bin:/usr/bin",
@@ -130,20 +180,16 @@ export function createDenoLinuxHost(options: DenoLinuxHostOptions) {
             USER: "wexel",
             WEXEL_DENO_ABI: "30002",
           };
-          return writeCString(valuePtr, len, values[key] ?? "");
+          return writeCString(valuePtr, len, values[readCString(keyPtr)] ?? "");
         },
 
-        net_request: (_methodPtr: number, urlPtr: number, _bodyPtr: number, _bodyLen: number, statusPtr: number) => {
-          // Network calls are asynchronous in WebPink. The actual Deno
-          // integration should use the async op bridge; this synchronous
-          // syscall is deliberately not exposed as a fake blocking fetch.
+        net_request: (_methodPtr: number, _urlPtr: number, _bodyPtr: number, _bodyLen: number, statusPtr: number) => {
           if (!options.networkAllowed) return -13;
           if (memory) new DataView(memory.buffer).setUint16(statusPtr, 501, true);
           return -38;
         },
 
         clock_now_ns: () => BigInt(Date.now()) * 1_000_000n,
-
         sleep_ms: (_ms: number) => 0,
 
         stdout_write: (ptr: number, len: number) => {
