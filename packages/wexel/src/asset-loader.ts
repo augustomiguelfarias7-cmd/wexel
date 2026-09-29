@@ -3,7 +3,7 @@
  * Registry + loader dos binários WASM empacotados (sem Wasmtime).
  */
 
-export type WexelAssetId = "core" | "deno-runtime" | "busybox" | "python" | "native-cli";
+export type WexelAssetId = "core" | "busybox" | "python" | "native-cli";
 
 export interface WexelAssetDescriptor {
   id: WexelAssetId;
@@ -30,7 +30,6 @@ export interface LoadedBinary {
 
 export const WEXEL_ASSET_CATALOG: Record<WexelAssetId, WexelAssetDescriptor> = {
   core: { id: "core", path: "core.wasm", label: "Wexel Assembly core" },
-  "deno-runtime": { id: "deno-runtime", path: "deno-runtime.wasm", label: "Deno runtime stub WASM" },
   busybox: {
     id: "busybox",
     path: "busybox/busybox.wasm",
