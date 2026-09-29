@@ -26,7 +26,8 @@ function fsRequest(method, args) {
   const payload = new TextEncoder().encode(JSON.stringify({ method, args }));
   data.set(payload); Atomics.store(ctrl, 1, payload.byteLength); Atomics.store(ctrl, 0, 1); Atomics.notify(ctrl, 0);
   const status = Atomics.wait(ctrl, 0, 1, 30000); if (status === "timed-out") throw new Error("VFS timeout");
-  const size = Atomics.load(ctrl, 1), bytes = data.slice(0, size); Atomics.store(ctrl, 0, 0);
+  const size = Atomics.load(ctrl, 1), bytes = data.slice(0, size), responseStatus = Atomics.load(ctrl, 0); Atomics.store(ctrl, 0, 0);
+  if (responseStatus === 2) return bytes;
   const parsed = JSON.parse(new TextDecoder().decode(bytes)); if (parsed.error) throw new Error(parsed.error.message); return parsed.value;
 }
 function allocBytes(bytes) { const alloc = instance?.exports?.wexel_alloc; if (typeof alloc !== "function") throw new Error("wexel_alloc ausente"); const ptr = alloc(bytes.byteLength); view().set(bytes, ptr); return [ptr, bytes.byteLength]; }
