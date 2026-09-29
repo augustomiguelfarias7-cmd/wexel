@@ -34,6 +34,10 @@ export interface DenoWasmHostInstance {
   instance: WebAssembly.Instance;
   memory?: WebAssembly.Memory;
   adapterAbi: number;
+  workerResources: {
+    fsSab: SharedArrayBuffer;
+    netPort: MessagePort;
+  };
 }
 
 function assertWasm(bytes: BufferSource): ArrayBuffer {
@@ -92,6 +96,10 @@ export async function instantiateDenoWasm(
     instance,
     memory,
     adapterAbi: DENO_LINUX_ADAPTER_ABI,
+    workerResources: {
+      fsSab: adapterInit.fsSab,
+      netPort: adapterInit.netPort,
+    },
   };
 }
 
