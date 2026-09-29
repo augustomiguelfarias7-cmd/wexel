@@ -8,7 +8,7 @@
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import type { DenoWasmArtifactSource } from "./deno-portable-wasm.js";
 import { DenoWasmPool } from "./deno-wasm-pool.js";
-import { runDenoWasm } from "./deno-wasm-adapter.js";
+import { runDenoWasmInstance } from "./deno-wasm-instance.js";
 import type { NetworkFetcher } from "./deno-net-bridge.js";
 
 export interface DenoBrowserSessionOptions {
@@ -29,12 +29,12 @@ export class DenoBrowserSession {
 
   async run(code: string, language: "javascript" | "typescript", args: string[] = []): Promise<ExecResult> {
     if (this.disposed) throw new Error("Deno browser session já foi encerrada.");
-    return runDenoWasm({
+    const template = await this.pool.template();
+    return runDenoWasmInstance({
+      module: template.module,
       fs: this.options.fs,
       networkAllowed: this.options.networkAllowed ?? false,
       fetcher: this.options.fetcher,
-      timeoutMs: this.options.timeoutMs,
-      artifact: this.options.artifact,
     }, code, language, args);
   }
 
