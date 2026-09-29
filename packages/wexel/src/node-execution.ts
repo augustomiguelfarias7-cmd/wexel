@@ -91,20 +91,12 @@ export class NodeExecution {
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
       fs: options.fs,
       denoRuntime: this.options.denoRuntime,
-      denoRunner: useNodeWorker
-        ? (code, language, args) => runDenoNodeWorker(
-            runtime.fs,
-            {
-              networkAllowed:  !!options.permissions?.network,
-              fetcher:         sandboxFetcher ?? fetch,
-              timeoutMs:       30_000,
-              // O worker/bridge mantém VFS + WebPink dentro da sandbox.
-              // Deno nativo é opt-in via createDenoNativeRunner().
-              preferNative:    false,
-            },
-            { code, language: language as "javascript" | "typescript", args },
-          )
-        : undefined,
+      denoRunner: this.options.denoRuntime
+        ? undefined
+        : (code, language, args) => {
+            if (!denoSession) throw new Error("Deno WASM sandbox ainda não foi inicializado.");
+            return denoSession.run(code, language, args);
+          },
       pythonRunnerFactory: this.options.python
         ? (fs) => createWasiPythonRunner({ ...this.options.python!, fs })
         : this.options.pythonWasi === false
@@ -115,13 +107,35 @@ export class NodeExecution {
       nativeCliBytes: this.options.nativeCliBytes,
       nativeExtensions: this.options.nativeExtensions,
     });
-    const sandbox = { id, runtime, createdAt: Date.now(), webPink };
+    if (this.denoPool) {
+      denoSession = this.denoPool.createSandboxSession({
+        id,
+        fs: runtime.fs,
+        networkAllowed: !!options.permissions?.network,
+        fetcher: sandboxFetcher,
+        timeoutMs: 30_000,
+      });
+    }
+
+    const sandbox = { id, runtime, createdAt: Date.now(), webPink, denoSession };
     this.sandboxes.set(id, sandbox);
     return sandbox;
   }
 
   getSandbox(id: string): BackendSandbox | undefined { return this.sandboxes.get(id); }
   listSandboxes(): BackendSandbox[] { return [...this.sandboxes.values()]; }
-  destroySandbox(id: string): boolean { this.webPink?.removeClient(id); return this.sandboxes.delete(id); }
-  async dispose(): Promise<void> { for (const id of this.sandboxes.keys()) this.webPink?.removeClient(id); this.sandboxes.clear(); }
+  destroySandbox(id: string): boolean {
+    this.webPink?.removeClient(id);
+    const sandbox = this.sandboxes.get(id);
+    sandbox?.denoSession?.dispose();
+    return this.sandboxes.delete(id);
+  }
+  async dispose(): Promise<void> {
+    for (const [id, sandbox] of this.sandboxes) {
+      this.webPink?.removeClient(id);
+      sandbox.denoSession?.dispose();
+    }
+    this.sandboxes.clear();
+    this.denoPool?.dispose();
+  }
 }
