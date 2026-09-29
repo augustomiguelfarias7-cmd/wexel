@@ -8,7 +8,7 @@
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import type { DenoWasmArtifactSource } from "./deno-portable-wasm.js";
 import { DenoWasmPool } from "./deno-wasm-pool.js";
-import { runDenoWasm } from "./deno-wasm-adapter.js";
+import { runDenoWasmInstance } from "./deno-wasm-instance.js";
 import type { NetworkFetcher } from "./deno-net-bridge.js";
 
 export interface DenoNodePoolOptions {
@@ -44,12 +44,15 @@ export class DenoNodePool {
 
     const session: DenoNodeSandboxSession = {
       id: options.id,
-      run: (code, language, args = []) => runDenoWasm({
-        fs: options.fs,
-        networkAllowed: options.networkAllowed ?? false,
-        fetcher: options.fetcher,
-        timeoutMs: options.timeoutMs,
-      }, code, language, args),
+      run: async (code, language, args = []) => {
+        const template = await this.pool.template();
+        return runDenoWasmInstance({
+          module: template.module,
+          fs: options.fs,
+          networkAllowed: options.networkAllowed ?? false,
+          fetcher: options.fetcher,
+        }, code, language, args);
+      },
       dispose: () => { this.sessions.delete(options.id); },
     };
 
