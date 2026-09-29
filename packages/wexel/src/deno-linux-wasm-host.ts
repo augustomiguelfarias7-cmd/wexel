@@ -37,9 +37,9 @@ export class DenoLinuxWasmHostBridge implements DenoLinuxWasmHost {
   }
 
   syscall(call: DenoLinuxWasmCall): DenoLinuxWasmResult {
-    const name = translateDenoLinuxSyscall(
-      Number(call.args[0] ?? -1),
-    );
+    const name = typeof call.syscall === "number"
+      ? translateDenoLinuxSyscall(call.syscall)
+      : call.syscall;
 
     // The public bridge accepts an explicit syscall number as args[0].
     // Unsupported operations must fail deterministically rather than being
