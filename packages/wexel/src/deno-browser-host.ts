@@ -14,6 +14,7 @@
 import type { ExecResult, WexelFileSystem } from "./index.js";
 import { installDenoServiceWorker, checkBrowserSupport } from "./deno-service-worker.js";
 import { runDenoWasmWorker } from "./deno-wasm-worker.js";
+import { DenoLinuxAdapter } from "./deno-linux-adapter.js";
 
 export interface DenoBrowserHostOptions {
   networkAllowed?: boolean;
@@ -24,10 +25,18 @@ export interface DenoBrowserHostOptions {
 export class DenoBrowserHost {
   private swReg?: ServiceWorkerRegistration;
 
+  private readonly linuxAdapter: DenoLinuxAdapter;
+
   private constructor(
     private readonly fs:   WexelFileSystem,
     private readonly opts: Required<DenoBrowserHostOptions>,
-  ) {}
+  ) {
+    this.linuxAdapter = new DenoLinuxAdapter({
+      fs,
+      networkAllowed: opts.networkAllowed,
+      fetcher: fetch,
+    });
+  }
 
   static async create(fs: WexelFileSystem, options: DenoBrowserHostOptions = {}): Promise<DenoBrowserHost> {
     const opts: Required<DenoBrowserHostOptions> = {
@@ -61,10 +70,12 @@ export class DenoBrowserHost {
       this.fs,
       { networkAllowed: this.opts.networkAllowed, fetcher: fetch, timeoutMs: this.opts.timeoutMs },
       { code, language, args },
+      this.linuxAdapter,
     );
   }
 
   async dispose(): Promise<void> {
+    this.linuxAdapter.dispose();
     await this.swReg?.unregister();
   }
 
