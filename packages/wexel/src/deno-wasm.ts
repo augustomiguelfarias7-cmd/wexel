@@ -1,20 +1,12 @@
 /**
  * Ponto de entrada unificado do Deno no Wexel.
  *
- * A classe DenoWasmRuntime mantém a ABI pública original (DENO_WASM_ABI_VERSION)
- * para não quebrar código existente, mas agora delega a execução para:
- *
- *   - DenoWorkerRuntime   → ambiente browser (Web Worker + SharedArrayBuffer)
- *   - DenoNodeRuntime     → ambiente Node.js (worker_threads + MessageChannel)
- *
- * A detecção do ambiente é automática, mas pode ser forçada via `target`.
+ * O caminho browser deve usar um artefato Deno WASM real dentro de um
+ * DedicatedWorker. O caminho Node pode usar o binário nativo explicitamente.
+ * Nenhum caminho usa um shim JavaScript para fingir que é o Deno.
  */
 
 import type { ExecResult, WexelFileSystem } from "./index.js";
-import {
-  runDenoNodeSandbox,
-  type DenoNodeSandboxOptions,
-} from "./deno-node-sandbox.js";
 import {
   runDenoNative,
   resolvedenoBin,
@@ -22,71 +14,42 @@ import {
 } from "./deno-native-adapter.js";
 import type { NetworkFetcher } from "./deno-net-bridge.js";
 
-// Mantida para compatibilidade com código que importa DENO_WASM_ABI_VERSION
 export const DENO_WASM_ABI_VERSION = 30000;
-
 export type DenoTarget = "browser" | "node" | "auto";
 
 export interface DenoRuntimeOptions {
-  /** Filesystem virtual da instância Wexel. Obrigatório. */
   fs: WexelFileSystem;
-  /** Ambiente alvo. Padrão: "auto" (detectado em runtime). */
   target?: DenoTarget;
-  /** Permite rede real (fetch, WebSocket). Padrão: false. */
   networkAllowed?: boolean;
-  /**
-   * Fetcher de rede — use WebPink.fetch para sandboxes com política de rede.
-   * Padrão: fetch nativo.
-   */
   fetcher?: NetworkFetcher;
-  /** Timeout em ms por execução. Padrão: 30 000. */
   timeoutMs?: number;
-  /**
-   * Caminho explícito para o binário Deno.
-   * Se omitido, resolvido automaticamente: DENO_BIN → assets/deno/deno → PATH.
-   */
   denoBin?: string;
-  /** URL opcional do artefato Deno WASM real. */
   denoWasmUrl?: string | URL;
 }
 
 function detectTarget(): "browser" | "node" {
-  if (
-    typeof globalThis.Worker !== "undefined" &&
+  return typeof globalThis.Worker !== "undefined" &&
     typeof globalThis.SharedArrayBuffer !== "undefined"
-  ) {
-    return "browser";
-  }
-  return "node";
+    ? "browser"
+    : "node";
 }
 
-/**
- * Runtime Deno unificado — substitui DenoWasmRuntime.
- *
- * Uso básico (browser):
- *   const deno = DenoRuntime.create({ fs: runtime.fs, networkAllowed: true });
- *   await deno.run("console.log('oi')", "javascript");
- *
- * Uso com WebPink (Node sandbox):
- *   const deno = DenoRuntime.create({ fs: sandbox.runtime.fs, fetcher: sandbox.webPink.fetch });
- *   await deno.run(code, "typescript");
- */
 export class DenoRuntime {
-  private readonly target:    "browser" | "node";
-  private readonly fs:        WexelFileSystem;
-  private readonly fetcher:   NetworkFetcher;
-  private readonly net:       boolean;
-  private readonly timeout:   number;
-  private readonly denoBin?:  string;
+  private readonly target: "browser" | "node";
+  private readonly fs: WexelFileSystem;
+  private readonly fetcher: NetworkFetcher;
+  private readonly net: boolean;
+  private readonly timeout: number;
+  private readonly denoBin?: string;
   private readonly denoWasmUrl?: string | URL;
 
   private constructor(opts: DenoRuntimeOptions) {
-    this.target   = (opts.target === "auto" || !opts.target) ? detectTarget() : opts.target;
-    this.fs       = opts.fs;
-    this.fetcher  = opts.fetcher ?? fetch;
-    this.net      = opts.networkAllowed ?? false;
-    this.timeout  = opts.timeoutMs ?? 30_000;
-    this.denoBin  = opts.denoBin;
+    this.target = !opts.target || opts.target === "auto" ? detectTarget() : opts.target;
+    this.fs = opts.fs;
+    this.fetcher = opts.fetcher ?? fetch;
+    this.net = opts.networkAllowed ?? false;
+    this.timeout = opts.timeoutMs ?? 30_000;
+    this.denoBin = opts.denoBin;
     this.denoWasmUrl = opts.denoWasmUrl;
   }
 
@@ -94,112 +57,62 @@ export class DenoRuntime {
     return new DenoRuntime(opts);
   }
 
-  /**
-   * Executa código JavaScript ou TypeScript no sandbox Deno.
-   * Retorna ExecResult com stdout, stderr e exitCode.
-   */
   async run(
-    code:     string,
+    code: string,
     language: "javascript" | "typescript",
-    args:     string[] = [],
+    args: string[] = [],
   ): Promise<ExecResult> {
     if (this.target === "browser") {
-      return this.runBrowser(code, language, args);
-    }
-    return this.runNode(code, language, args);
-  }
+      if (!this.denoWasmUrl) {
+        throw new Error(
+          "Deno WASM não configurado no browser. Forneça denoWasmUrl apontando para um módulo WebAssembly Deno real; o Wexel não usa mais shim JavaScript ou Deno nativo do Node no browser.",
+        );
+      }
 
-  /** Atalho para ler um arquivo do VFS e executá-lo. */
-  async runFile(
-    path:     string,
-    language: "javascript" | "typescript",
-    args:     string[] = [],
-  ): Promise<ExecResult> {
-    const code = this.fs.readText(path);
-    return this.run(code, language, args);
-  }
-
-  private async runBrowser(
-    code:     string,
-    language: "javascript" | "typescript",
-    args:     string[],
-  ): Promise<ExecResult> {
-    const { runDenoBrowser, isBrowserDenoSupported } = await import("./deno-browser-bridge.js");
-    if (!isBrowserDenoSupported()) {
       throw new Error(
-        "Deno browser requer SharedArrayBuffer, crossOriginIsolated e Service Worker. " +
-        "O Wexel não usa mais o shim JavaScript como fallback.",
+        "O artefato Deno WASM foi selecionado, mas ainda precisa expor o entrypoint de execução compatível com a ABI Wexel. O loader não vai fingir que um módulo WASM instanciado já é um runtime Deno executável.",
       );
     }
-    return runDenoBrowser(this.fs, code, language, args, {
+
+    const bin = await resolvedenoBin(this.denoBin);
+    const nativeOpts: DenoNativeOptions = {
+      denoBin: bin,
       networkAllowed: this.net,
       timeoutMs: this.timeout,
-      denoWasmUrl: this.denoWasmUrl,
-    });
+      env: { WEXEL_DENO_TARGET: "node" },
+    };
+    return runDenoNative(this.fs, nativeOpts, { code, language, args });
   }
 
-  private async runNode(
-    code:     string,
+  async runFile(
+    path: string,
     language: "javascript" | "typescript",
-    args:     string[],
+    args: string[] = [],
   ): Promise<ExecResult> {
-    // Tenta o binário nativo primeiro (deno.gz → deno)
-    try {
-      const bin = await resolvedenoBin(this.denoBin);
-      const nativeOpts: DenoNativeOptions = {
-        denoBin:         bin,
-        networkAllowed:  this.net,
-        timeoutMs:       this.timeout,
-      };
-      return await runDenoNative(this.fs, nativeOpts, { code, language, args });
-    } catch {
-      // Binário não disponível (ex: WASM-only environment) — shim JS
-      const shimOpts: DenoNodeSandboxOptions = {
-        fetcher:         this.fetcher,
-        networkAllowed:  this.net,
-        timeoutMs:       this.timeout,
-      };
-      return runDenoNodeSandbox(this.fs, shimOpts, { code, language, args });
-    }
+    return this.run(this.fs.readText(path), language, args);
   }
 
   dispose(): void {}
 }
 
-/**
- * DenoWasmRuntime — mantida para compatibilidade.
- * Agora é um wrapper sobre DenoRuntime que preserva a API antiga.
- *
- * @deprecated Use DenoRuntime.create() com as novas opções.
- */
+/** Compatibilidade com a API histórica. */
 export class DenoWasmRuntime {
   private constructor(private readonly inner: DenoRuntime) {}
 
-  /** @deprecated Use DenoRuntime.create() */
   static fromRuntime(inner: DenoRuntime): DenoWasmRuntime {
     return new DenoWasmRuntime(inner);
   }
 
-  /**
-   * Mantida para compatibilidade: instancia a ABI legada (agora no-op).
-   * O `source` é ignorado — o Deno real não precisa mais de um .wasm externo.
-   *
-   * @deprecated Use DenoRuntime.create() passando { fs } nas opções.
-   */
   static async instantiate(_source: BufferSource): Promise<DenoWasmRuntime> {
-    // Compatibilidade: retorna uma instância sem fs — fs deve ser injetado depois
-    const inner = DenoRuntime.create({
-      fs: null as unknown as WexelFileSystem, // será substituído em run()
-      target: "auto",
-    });
-    return new DenoWasmRuntime(inner);
+    throw new Error(
+      "DenoWasmRuntime.instantiate() não aceita mais artefatos genéricos sem ABI de execução. Use DenoRuntime.create({ fs, denoWasmUrl }) com um Deno WASM real.",
+    );
   }
 
-  /** @deprecated Use DenoRuntime.run() */
   async run(
-    code:     string,
+    code: string,
     language: "javascript" | "typescript",
-    args:     string[] = [],
+    args: string[] = [],
   ): Promise<ExecResult> {
     return this.inner.run(code, language, args);
   }
