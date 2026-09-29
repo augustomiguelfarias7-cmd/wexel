@@ -550,9 +550,9 @@ The root `package.json` defines:
 ### Wexel package scripts
 
 ```bash
-pnpm --filter wexel build
-pnpm --filter wexel test
-pnpm --filter wexel typecheck
+npm run build --workspace=wexel
+npm run test --workspace=wexel
+npm run typecheck --workspace=wexel
 ```
 
 ```json
@@ -566,37 +566,37 @@ pnpm --filter wexel typecheck
 ## Build
 
 ```bash
-pnpm build
+npm run build
 ```
 
 ## Tests
 
 ```bash
-pnpm test
+npm test
 ```
 
 Or directly:
 
 ```bash
-pnpm --filter wexel test
+npm run test --workspace=wexel
 ```
 
 ## Type Checking
 
 ```bash
-pnpm typecheck
+npm run typecheck
 ```
 
 ## Clean
 
 ```bash
-pnpm clean
+npm run clean
 ```
 
 ## BusyBox Build
 
 ```bash
-pnpm build:busybox
+npm run build:busybox
 ```
 
 ## MultiC Runtime Artifacts
@@ -632,7 +632,7 @@ wexel/
 │   └── cpp-runtime/
 ├── scripts/
 ├── package.json
-└── pnpm-workspace.yaml
+└── package.json
 ```
 
 Important runtime components include:
