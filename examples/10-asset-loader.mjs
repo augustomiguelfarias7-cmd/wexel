@@ -10,7 +10,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const assets = join(root, "packages/wexel/assets");
 const catalog = {
   core: join(assets, "core.wasm"),
-  "deno-runtime": join(assets, "deno-runtime.wasm"),
   busybox: join(assets, "busybox/busybox.wasm"),
   python: join(assets, "cpython-3.14.7/python.wasm"),
 };
