@@ -145,3 +145,42 @@ npm run build:busybox
 ## Outras APIs
 
 O restante das APIs do Wexel 3.0 continua disponível, incluindo VFS, shell, CPython, BusyBox, RustV, C/C++ para WASM, Git, curl, WebPink, extensões WASM e NodeExecution.
+
+## Deno dentro do Wexel NodeExecution
+
+O caminho padrão do NodeExecution agora conecta o Deno nativo diretamente à sandbox Wexel. A sequência é:
+
+```text
+Node.js
+  └── NodeExecution
+       └── WexelRuntime
+            ├── Wexel VFS
+            ├── Wexel permissions
+            ├── WebPink
+            └── Deno native backend
+                 └── Deno run <entry.ts|entry.js>
+```
+
+Exemplo:
+
+```ts
+import { NodeExecution } from "wexel/node-execution";
+
+const execution = await NodeExecution.create({
+  coreBytes,
+});
+
+const sandbox = await execution.createSandbox({
+  permissions: { files: true, network: true },
+});
+
+sandbox.runtime.fs.write("/home/wexel/main.ts", 'console.log(Deno.version.deno);');
+const result = await sandbox.runtime.exec({
+  language: "typescript",
+  file: "/home/wexel/main.ts",
+});
+
+console.log(result.stdout);
+```
+
+O arquivo é copiado da VFS para o diretório temporário da sandbox, executado pelo Deno e o stdout/stderr/exit code retornam ao Wexel. O binário nativo do Deno não é tratado como WASM. O caminho browser continua separado e exige um artefato Deno WASM real.
