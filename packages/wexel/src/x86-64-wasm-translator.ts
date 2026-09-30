@@ -546,25 +546,21 @@ function emitPop(out:number[],reg:number):void {
   emit(out,0x20,...u32(RSP),0x42,8,0x7c,0x21,...u32(RSP));
 }
 
-function emitAddress(out:number[],ins:X64Instruction,codeOffset:number):void {
+function emitAddress(out:number[],ins:X64Instruction,_codeOffset:number):void {
   if (ins.base !== undefined) emit(out,0x20,...u32(ins.base));
-  else emit(out,0x42,...signedLeb(BigInt(ins.disp ?? 0)));
+  else if (ins.index === undefined) emit(out,0x42,...signedLeb(BigInt(ins.disp ?? 0)));
   if (ins.index !== undefined) {
     emit(out,0x20,...u32(ins.index));
-    if ((ins.scale ?? 1) !== 1) {
-      emit(out,0x42,...signedLeb(BigInt(Math.log2(ins.scale ?? 1))),0x86);
-    }
-    out.push(0x7c);
+    const scale = ins.scale ?? 1;
+    if (scale !== 1) emit(out,0x42,...signedLeb(BigInt(Math.log2(scale))),0x86);
+    if (ins.base !== undefined) out.push(0x7c);
   }
-  if (ins.base === undefined && ins.index === undefined) {
-    if ((ins.disp ?? 0) !== 0) emit(out,0x42,...signedLeb(BigInt(ins.disp!)),0x7c);
-  } else if ((ins.disp ?? 0) !== 0) {
+  if (ins.base !== undefined && ins.index === undefined && (ins.disp ?? 0) !== 0) {
+    emit(out,0x42,...signedLeb(BigInt(ins.disp!)),0x7c);
+  } else if (ins.base !== undefined && ins.index !== undefined && (ins.disp ?? 0) !== 0) {
     emit(out,0x42,...signedLeb(BigInt(ins.disp!)),0x7c);
   }
-  // WASM memory addresses are i32. The generated code intentionally truncates
-  // the translated x86 virtual address at the WASM memory boundary.
   out.push(0xa7);
-  void codeOffset;
 }
 
 function emitBinaryArithmetic(out:number[],dst:number,src:number,opcode:number):void {
@@ -609,18 +605,18 @@ function conditionalBranch(out:number[],map:Map<number,number>,target:number,fla
   setPc(out,taken);
   out.push(0x05);
   setPc(out,fallthrough);
-  out.push(0x0b);
+  out.push(0x0b,0x0c,0);
 }
 
 function emitSignedLess(out:number[],map:Map<number,number>,target:number,sf:number,of:number,fallthrough:number|undefined):void {
   const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
   emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40);
-  setPc(out,t); out.push(0x05); setPc(out,fallthrough); out.push(0x0b);
+  setPc(out,t); out.push(0x05); setPc(out,fallthrough); out.push(0x0b,0x0c,0);
 }
 function emitSignedGreaterEqual(out:number[],map:Map<number,number>,target:number,sf:number,of:number,fallthrough:number|undefined):void {
   const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
   emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40);
-  setPc(out,t); out.push(0x05); setPc(out,fallthrough); out.push(0x0b);
+  setPc(out,t); out.push(0x05); setPc(out,fallthrough); out.push(0x0b,0x0c,0);
 }
 function emitSignedLessEqual(out:number[],map:Map<number,number>,target:number,zf:number,sf:number,of:number,fallthrough:number|undefined):void {
   const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
@@ -631,7 +627,7 @@ function emitSignedLessEqual(out:number[],map:Map<number,number>,target:number,z
   setPc(out,t);
   out.push(0x05);
   setPc(out,fallthrough);
-  out.push(0x0b);
+  out.push(0x0b,0x0c,0);
 }
 function emitSignedGreater(out:number[],map:Map<number,number>,target:number,zf:number,sf:number,of:number,fallthrough:number|undefined):void {
   const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
@@ -641,7 +637,7 @@ function emitSignedGreater(out:number[],map:Map<number,number>,target:number,zf:
   setPc(out,t);
   out.push(0x05);
   setPc(out,fallthrough);
-  out.push(0x0b);
+  out.push(0x0b,0x0c,0);
 }
 
 function emitSyscall(out:number[]):void {
