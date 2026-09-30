@@ -439,12 +439,12 @@ function emitInstruction(
       setLogicFlags(out,dst);
       return;
     case 'add_rr':
-      emitBinaryArithmetic(out,dst,src,0x7c);
       setAddFlags(out,dst,src);
+      emitBinaryArithmetic(out,dst,src,0x7c);
       return;
     case 'sub_rr':
-      emitBinaryArithmetic(out,dst,src,0x7d);
       setSubFlags(out,dst,src);
+      emitBinaryArithmetic(out,dst,src,0x7d);
       return;
     case 'cmp_rr':
       emit(out,0x20,...u32(dst),0x20,...u32(src),0x7d);
