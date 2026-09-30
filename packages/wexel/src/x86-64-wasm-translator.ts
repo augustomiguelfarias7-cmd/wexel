@@ -387,7 +387,7 @@ function emitRun(
     body.push(0x46,0x04,0x40); // if
 
     for (const ins of block.instructions) {
-      emitInstruction(body,ins,block,blockByOffset,codeOffset);
+      emitInstruction(body,ins,block,blockByOffset,codeOffset,blocks[block.id+1]?.id);
     }
 
     // If a block did not terminate, continue with the lexical successor.
