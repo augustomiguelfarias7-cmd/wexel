@@ -554,9 +554,7 @@ function emitAddress(out:number[],ins:X64Instruction,_codeOffset:number):void {
     if (scale !== 1) emit(out,0x42,...signedLeb(BigInt(Math.log2(scale))),0x86);
     if (ins.base !== undefined) out.push(0x7c);
   }
-  if (ins.base !== undefined && ins.index === undefined && (ins.disp ?? 0) !== 0) {
-    emit(out,0x42,...signedLeb(BigInt(ins.disp!)),0x7c);
-  } else if (ins.base !== undefined && ins.index !== undefined && (ins.disp ?? 0) !== 0) {
+  if ((ins.disp ?? 0) !== 0 && (ins.base !== undefined || ins.index !== undefined)) {
     emit(out,0x42,...signedLeb(BigInt(ins.disp!)),0x7c);
   }
   out.push(0xa7);
