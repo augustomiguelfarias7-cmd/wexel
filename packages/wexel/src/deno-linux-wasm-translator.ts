@@ -122,3 +122,4 @@ const DENO_X64_SYSCALLS: Record<number, DenoLinuxSyscall> = {
   318: "getrandom",
   332: "statx",
 };
+export { X64_WASM_TRANSLATOR_ABI, translateX64ToWasm, x64RegisterName, x64RegisterIndex, type X64Register, type X64Instruction, type X64TranslationDiagnostic, type X64TranslationResult, type X64WasmTranslatorOptions } from './x86-64-wasm-translator.js';
