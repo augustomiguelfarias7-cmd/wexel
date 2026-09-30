@@ -22,7 +22,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
-- npm/pnpm/deno add via Deno package manager integrado
+- npm and `deno add` through the integrated Deno package manager
 - Isolated backend sandboxes through `NodeExecution`
 - Per-sandbox permissions and storage quotas
 - Controlled networking through WebPink
@@ -539,7 +539,7 @@ The root `package.json` defines:
 
 ```json
 {
-  "build": "pnpm --filter @wexel/core build && node scripts/build-core.mjs && npm run build --workspace=wexel && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm && node scripts/check-browser-budget.mjs",
+  "build": "npm run build --workspace=@wexel/core && node scripts/build-core.mjs && npm run build --workspace=wexel && mkdir -p packages/wexel/assets && cp packages/wexel-core/dist/core.wasm packages/wexel/assets/core.wasm && node scripts/check-browser-budget.mjs",
   "test": "npm run test --workspace=wexel",
   "typecheck": "npm run typecheck --workspace=wexel",
   "clean": "rm -rf packages/*/dist",
