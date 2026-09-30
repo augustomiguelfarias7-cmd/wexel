@@ -248,8 +248,7 @@ function decodeAddress(
     const rawBase = sib & 7;
     if (i !== 4) index = i | (rm & 8);
     if (rawBase === 5 && mod === 0) {
-      if ((rm & 8) === 0) ripRelative = true;
-      else base = 13;
+      base = undefined;
     } else {
       base = rawBase | (rm & 8);
     }
