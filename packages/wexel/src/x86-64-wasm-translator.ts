@@ -509,12 +509,10 @@ function emitInstruction(
       const returnBlock = blockByOffset.get(returnOffset);
       if (returnBlock === undefined) throw new Error('call has no translated return block');
       // Translation call stack lives above the x86 stack frame and stores block IDs.
-      emit(out,0x20,...u32(DEPTH),0x42,1n as never); // patched below by helper
-      out.pop(); // remove impossible mixed helper output
-      // Use the x86 stack for the return address as a real translated stack value.
-      // The address is encoded as a block id in the translation stack, not an x86 PC.
-      emit(out,0x20,...u32(DEPTH),0x42,...signedLeb(BigInt(returnBlock)),0x37,0x00,0x21,...u32(TMP));
-      emit(out,0x20,...u32(DEPTH),0x42,1,0x7c,0x21,...u32(DEPTH));
+      emit(out,0x41,...u32(0x1000));
+      emit(out,0x20,...u32(DEPTH),0x41,3,0x74,0x6a);
+      emit(out,0x42,...signedLeb(BigInt(returnBlock)),0x37,0x00);
+      emit(out,0x20,...u32(DEPTH),0x41,1,0x7c,0x21,...u32(DEPTH));
       setPc(out,target);
       out.push(0x0c,0);
       return;
@@ -527,9 +525,8 @@ function emitInstruction(
       emit(out,0x20,...u32(DEPTH),0x42,1,0x7d,0x21,...u32(DEPTH));
       // Translation return stack is held in linear memory at a fixed high slot.
       // Use DEPTH*8 as the slot.
-      emit(out,0x20,...u32(DEPTH),0x42,3,0x7d,0x21,...u32(TMP));
-      // For compactness, the current ABI uses a dedicated return slot at 0x1000.
-      emit(out,0x41,0x80,0x20,0x20,...u32(DEPTH),0x41,8,0x7c,0x6a);
+      emit(out,0x41,...u32(0x1000));
+      emit(out,0x20,...u32(DEPTH),0x41,3,0x74,0x6a);
       out.push(0x29,0x00,0x00);
       emit(out,0x21,...u32(PC));
       out.push(0x0c,0);
