@@ -8,6 +8,9 @@ export const DENO_LINUX_WASM_ABI = 2;
 
 export type DenoLinuxSyscall =
   | "read" | "write" | "readv" | "writev" | "close" | "ioctl"
+  | "poll" | "pread64" | "pwrite64" | "sendfile" | "wait4" | "fcntl"
+  | "getsockname" | "getpeername" | "sigaltstack" | "prctl"
+  | "getrlimit" | "prlimit64" | "execveat" | "restart_syscall"
   | "lseek" | "mmap" | "mprotect" | "munmap" | "brk"
   | "rt_sigaction" | "rt_sigprocmask" | "rt_sigreturn"
   | "nanosleep" | "clock_gettime" | "clock_getres"
@@ -15,7 +18,8 @@ export type DenoLinuxSyscall =
   | "dup" | "dup2" | "pipe" | "pipe2"
   | "openat" | "newfstatat" | "fstat" | "statx" | "getdents64"
   | "mkdirat" | "unlinkat" | "renameat" | "access"
-  | "getrandom" | "futex" | "set_robust_list" | "arch_prctl"
+  | "getrandom" | "futex" | "set_tid_address" | "set_robust_list"
+  | "get_robust_list" | "arch_prctl"
   | "exit" | "exit_group" | "kill"
   | "epoll_create1" | "epoll_ctl" | "epoll_wait"
   | "socket" | "connect" | "accept4" | "bind" | "listen"
@@ -84,13 +88,13 @@ const DENO_X64_SYSCALL_SPECS:DenoLinuxSyscallSpec[] = [
   spec(87,"unlink",1), spec(89,"readlink",3), spec(97,"getrlimit",2),
   spec(131,"sigaltstack",2), spec(157,"prctl",5),
   spec(202,"futex",6,true), spec(217,"getdents64",3),
-  spec(218,"set_robust_list",2), spec(219,"get_robust_list",3),
+  spec(218,"set_tid_address",1), spec(219,"restart_syscall",0),
   spec(228,"clock_gettime",2), spec(229,"clock_getres",2),
   spec(231,"exit_group",1), spec(232,"epoll_wait",4,true),
   spec(233,"epoll_ctl",4), spec(235,"epoll_create1",1),
   spec(257,"openat",4), spec(258,"mkdirat",3), spec(263,"unlinkat",3),
   spec(264,"renameat",4), spec(269,"faccessat",3), spec(270,"pselect6",6,true),
-  spec(273,"set_robust_list",2), spec(302,"prlimit64",4),
+  spec(273,"set_robust_list",2), spec(274,"get_robust_list",3), spec(302,"prlimit64",4),
   spec(318,"getrandom",3,true), spec(322,"execveat",5),
   spec(332,"statx",5), spec(158,"arch_prctl",2),
 ];
