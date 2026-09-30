@@ -364,10 +364,10 @@ function emitRun(
   stackTop:number,
 ):Uint8Array {
   const locals = concat([
-    u32(23),
-    new Uint8Array(new Array(16).fill(I64)),
-    new Uint8Array(new Array(4).fill(I32)),
-    new Uint8Array([I32,I32,I64]),
+    u32(3),
+    u32(16),new Uint8Array([I64]),
+    u32(6),new Uint8Array([I32]),
+    u32(1),new Uint8Array([I64]),
   ]);
 
   const body:number[] = [...locals];
