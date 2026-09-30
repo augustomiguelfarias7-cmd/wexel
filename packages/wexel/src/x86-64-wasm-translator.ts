@@ -422,6 +422,7 @@ function emitInstruction(
   block:Block,
   blockByOffset:Map<number,number>,
   codeOffset:number,
+  fallthrough:number|undefined,
 ):void {
   const dst = ins.dst ?? 0;
   const src = ins.src ?? 0;
@@ -485,22 +486,22 @@ function emitInstruction(
       branchTo(out,blockByOffset,ins.target!);
       return;
     case 'jz_rel':
-      conditionalBranch(out,blockByOffset,ins.target!,ZF,0x45);
+      conditionalBranch(out,blockByOffset,ins.target!,ZF,0x45,fallthrough);
       return;
     case 'jnz_rel':
-      conditionalBranch(out,blockByOffset,ins.target!,ZF,0x50);
+      conditionalBranch(out,blockByOffset,ins.target!,ZF,0x50,fallthrough);
       return;
     case 'jl_rel':
-      emitSignedLess(out,blockByOffset,ins.target!,SF,OF);
+      emitSignedLess(out,blockByOffset,ins.target!,SF,OF,fallthrough);
       return;
     case 'jge_rel':
-      emitSignedGreaterEqual(out,blockByOffset,ins.target!,SF,OF);
+      emitSignedGreaterEqual(out,blockByOffset,ins.target!,SF,OF,fallthrough);
       return;
     case 'jle_rel':
       emitSignedLessEqual(out,blockByOffset,ins.target!,SF,OF);
       return;
     case 'jg_rel':
-      emitSignedGreater(out,blockByOffset,ins.target!,ZF,SF,OF);
+      emitSignedGreater(out,blockByOffset,ins.target!,ZF,SF,OF,fallthrough);
       return;
     case 'call_rel': {
       const target = blockByOffset.get(ins.target!);
@@ -601,46 +602,46 @@ function clearFlag(out:number,local:number):void {
   emit(out,0x41,0,0x21,...u32(local));
 }
 
-function conditionalBranch(
-  out:number[],
-  map:Map<number,number>,
-  target:number,
-  flag:number,
-  invertOpcode:number,
-):void {
-  const id = map.get(target);
-  if (id === undefined) throw new Error('conditional target missing');
-  emit(out,0x20,...u32(flag));
-  out.push(invertOpcode);
-  out.push(0x04,0x40);
-  setPc(out,id);
+function conditionalBranch(out:number[],map:Map<number,number>,target:number,flag:number,compareOpcode:number,fallthrough:number|undefined):void {
+  const taken=map.get(target);
+  if(taken===undefined||fallthrough===undefined) throw new Error('conditional branch target missing');
+  emit(out,0x20,...u32(flag),compareOpcode,0x04,0x40);
+  setPc(out,taken);
+  out.push(0x05);
+  setPc(out,fallthrough);
   out.push(0x0b);
-  if (invertOpcode === 0x50) {
-    // br_if is unnecessary here because the selector loop follows.
-  }
-  // Fallthrough is set by the surrounding block only if branch is not taken.
-  // Determine the lexical successor from the current block externally is complex,
-  // so conditional branches are finalized by the block dispatcher below.
-  // The current ABI therefore uses pc=target for taken and leaves pc unchanged
-  // for not-taken, with the block epilogue advancing it.
 }
 
-function emitSignedLess(out:number[],map:Map<number,number>,target:number,sf:number,of:number):void {
+function emitSignedLess(out:number[],map:Map<number,number>,target:number,sf:number,of:number,fallthrough:number|undefined):void {
+  const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
   emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40);
-  setPc(out,map.get(target)!); out.push(0x0b);
+  setPc(out,t); out.push(0x05); setPc(out,fallthrough); out.push(0x0b);
 }
-function emitSignedGreaterEqual(out:number[],map:Map<number,number>,target:number,sf:number,of:number):void {
+function emitSignedGreaterEqual(out:number[],map:Map<number,number>,target:number,sf:number,of:number,fallthrough:number|undefined):void {
+  const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
   emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40);
-  out.push(0x0b); setPc(out,map.get(target)!);
+  setPc(out,t); out.push(0x05); setPc(out,fallthrough); out.push(0x0b);
 }
-function emitSignedLessEqual(out:number[],map:Map<number,number>,target:number,zf:number,sf:number,of:number):void {
-  emit(out,0x20,...u32(zf),0x45,0x04,0x40); setPc(out,map.get(target)!); out.push(0x0b);
-  emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40); setPc(out,map.get(target)!); out.push(0x0b);
+function emitSignedLessEqual(out:number[],map:Map<number,number>,target:number,zf:number,sf:number,of:number,fallthrough:number|undefined):void {
+  const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
+  emit(out,0x20,...u32(zf),0x45,0x04,0x40);
+  setPc(out,t);
+  out.push(0x05);
+  emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40);
+  setPc(out,t);
+  out.push(0x05);
+  setPc(out,fallthrough);
+  out.push(0x0b);
 }
-function emitSignedGreater(out:number[],map:Map<number,number>,target:number,zf:number,sf:number,of:number):void {
-  emit(out,0x20,...u32(zf),0x45,0x04,0x40); out.push(0x0b);
-  emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40); out.push(0x0b);
-  setPc(out,map.get(target)!);
+function emitSignedGreater(out:number[],map:Map<number,number>,target:number,zf:number,sf:number,of:number,fallthrough:number|undefined):void {
+  const t=map.get(target); if(t===undefined||fallthrough===undefined) throw new Error('signed branch target missing');
+  emit(out,0x20,...u32(zf),0x45,0x04,0x40);
+  out.push(0x05);
+  emit(out,0x20,...u32(sf),0x20,...u32(of),0x51,0x04,0x40);
+  setPc(out,t);
+  out.push(0x05);
+  setPc(out,fallthrough);
+  out.push(0x0b);
 }
 
 function emitSyscall(out:number[]):void {
