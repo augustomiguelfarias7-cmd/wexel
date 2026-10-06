@@ -1,0 +1,18 @@
+{
+  "name": "wexel-deno-runtime-wasm-experimental",
+  "runtime": "denort",
+  "format": "wasm",
+  "target": "wasm32-unknown-unknown",
+  "sourceRepository": "https://github.com/denoland/deno",
+  "sourceRef": "main",
+  "sourceCommit": null,
+  "officialDenoArtifact": false,
+  "status": "build-probe",
+  "host": "node",
+  "browser": "planned",
+  "abi": {
+    "name": "wexel-deno-runtime",
+    "version": 1
+  },
+  "artifacts": []
+}
