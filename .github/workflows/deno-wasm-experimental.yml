@@ -1,0 +1,134 @@
+name: Experimental Deno Runtime WASM
+
+on:
+  push:
+    branches:
+      - feat/deno-wasm-runtime-experimental
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DENO_REF: main
+  RUST_BACKTRACE: "1"
+
+jobs:
+  build-deno-runtime-wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout Wexel
+        uses: actions/checkout@v4
+
+      - name: Install Rust WASM target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32-unknown-unknown
+
+      - name: Clone Deno source
+        run: |
+          git clone --depth 1 --branch "$DENO_REF" https://github.com/denoland/deno.git .build/deno
+          cd .build/deno
+          echo "DENO_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Record source revision
+        run: |
+          mkdir -p packages/wexel/assets/deno
+          cat > packages/wexel/assets/deno/deno-wasm-build.json <<EOF
+          {
+            "sourceRepository": "https://github.com/denoland/deno",
+            "sourceRef": "$DENO_REF",
+            "sourceCommit": "$DENO_COMMIT",
+            "officialDenoArtifact": false,
+            "target": "wasm32-unknown-unknown"
+          }
+          EOF
+
+      - name: Probe denort for WASM
+        run: |
+          cd .build/deno
+          cargo check --locked --target wasm32-unknown-unknown -p denort
+
+      - name: Probe deno_runtime for WASM
+        run: |
+          cd .build/deno
+          cargo check --locked --target wasm32-unknown-unknown -p deno_runtime
+
+      - name: Build denort WASM
+        run: |
+          cd .build/deno
+          cargo build --locked --release --target wasm32-unknown-unknown -p denort
+          test -f target/wasm32-unknown-unknown/release/denort.wasm
+
+      - name: Copy and validate WASM
+        run: |
+          mkdir -p packages/wexel/assets/deno
+          cp .build/deno/target/wasm32-unknown-unknown/release/denort.wasm packages/wexel/assets/deno/denort.wasm
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+
+          const file = "packages/wexel/assets/deno/denort.wasm";
+          const bytes = readFileSync(file);
+          if (bytes.subarray(0, 4).toString("hex") !== "0061736d") {
+            throw new Error("denort.wasm does not have a valid WASM header");
+          }
+
+          const module = await WebAssembly.compile(bytes);
+          const imports = WebAssembly.Module.imports(module);
+          const exports = WebAssembly.Module.exports(module);
+
+          const manifest = {
+            sourceRepository: "https://github.com/denoland/deno",
+            sourceRef: process.env.DENO_REF,
+            sourceCommit: process.env.DENO_COMMIT,
+            officialDenoArtifact: false,
+            target: "wasm32-unknown-unknown",
+            artifact: "denort.wasm",
+            sizeBytes: bytes.byteLength,
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+            imports,
+            exports
+          };
+
+          writeFileSync(
+            "packages/wexel/assets/deno/denort.wasm.json",
+            JSON.stringify(manifest, null, 2) + "\n"
+          );
+
+          console.log(JSON.stringify(manifest, null, 2));
+          NODE
+
+      - name: Node.js WASM smoke test
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const bytes = readFileSync("packages/wexel/assets/deno/denort.wasm");
+          const module = await WebAssembly.compile(bytes);
+          const imports = WebAssembly.Module.imports(module);
+
+          console.log("WASM compiled successfully in Node.js.");
+          console.log("Import count:", imports.length);
+
+          if (imports.length === 0) {
+            const instance = await WebAssembly.instantiate(module, {});
+            console.log("Self-contained instantiation succeeded.");
+            console.log("Exports:", Object.keys(instance.exports));
+          } else {
+            console.log("Runtime requires explicit host imports; ABI validation is recorded in the manifest.");
+          }
+          NODE
+
+      - name: Upload experimental runtime artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wexel-deno-runtime-wasm
+          path: |
+            packages/wexel/assets/deno/denort.wasm
+            packages/wexel/assets/deno/denort.wasm.json
+            packages/wexel/assets/deno/deno-wasm-build.json
+          retention-days: 14
