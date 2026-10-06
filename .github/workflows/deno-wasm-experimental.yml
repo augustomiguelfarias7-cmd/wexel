@@ -25,7 +25,11 @@ jobs:
       - name: Install Rust WASM target
         run: |
           rustup toolchain install stable --profile minimal
-          rustup target add wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown --toolchain stable
+          rustup default stable
+          rustc --version
+          rustup target list --installed
+          rustup target list --installed | grep -qx 'wasm32-unknown-unknown'
 
       - name: Clone Deno source
         run: |
@@ -49,17 +53,17 @@ jobs:
       - name: Probe denort for WASM
         run: |
           cd .build/deno
-          cargo check --locked --target wasm32-unknown-unknown -p denort
+          cargo +stable check --locked --target wasm32-unknown-unknown -p denort
 
       - name: Probe deno_runtime for WASM
         run: |
           cd .build/deno
-          cargo check --locked --target wasm32-unknown-unknown -p deno_runtime
+          cargo +stable check --locked --target wasm32-unknown-unknown -p deno_runtime
 
       - name: Build denort WASM
         run: |
           cd .build/deno
-          cargo build --locked --release --target wasm32-unknown-unknown -p denort
+          cargo +stable build --locked --release --target wasm32-unknown-unknown -p denort
           test -f target/wasm32-unknown-unknown/release/denort.wasm
 
       - name: Copy and validate WASM
