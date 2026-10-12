@@ -683,3 +683,5 @@ Wexel 3.0 introduced the Deno runtime integration, NodeExecution sandbox manager
 Wexel is licensed under the Apache License 2.0.
 
 See [`LICENSE.md`](./LICENSE.md) for the complete license text.
+
+4.0.0 shortly 
