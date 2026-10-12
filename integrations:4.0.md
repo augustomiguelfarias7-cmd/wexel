@@ -6,7 +6,9 @@ WebPink
 
 multiC
 
-wexel.js("Edge.js + quick.js-NG")
+wexel.js(Edge.js + quick.js-NG)
+
+Kernel Linux(kernel boot for WebAssembly)  
 
 C and C++
 
@@ -18,7 +20,9 @@ v9
 
 rustV
 
-BusyBox 
+BusyBox
+
+VFS 
 
 remove deno and 40 shell commands 
 
