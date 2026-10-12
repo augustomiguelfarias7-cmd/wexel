@@ -3,12 +3,13 @@ import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
 import { V9Executor, type V9Document } from "./v9.js";
 import { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
-import { DenoWasmRuntime } from "./deno-wasm.js";
+
 import { WexelGit } from "./git.js";
 import { runCurl } from "./curl.js";
-import { DenoPackageManager } from "./deno-package-manager.js";
+
 import { runNativeSource } from "./native-compiler.js";
 import { runMultiCVfs } from "./multic.js";
+import { WexelShell } from "./shell.js";
 
 export type Language = "python" | "wasm" | "javascript" | "typescript" | string;
 
@@ -44,20 +45,27 @@ export interface WexelOptions {
   coreBytes?: BufferSource;
   pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
   pythonRunnerFactory?: (fs: WexelFileSystem) => NonNullable<WexelOptions["pythonRunner"]>;
-  denoRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
-  denoRuntime?: DenoWasmRuntime;
-  /** Runtime Deno unificado (browser + Node) — tem prioridade sobre denoRuntime e denoRunner. */
-  deno?: import("./deno-wasm.js").DenoRuntime;
+  /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG, ver assets/wexeljs/edgejs.wasm). */
+  wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
   bashRunner?: (args: string[]) => Promise<ExecResult> | ExecResult;
   networkFetch?: typeof fetch;
   pypiIndexUrl?: string;
   v9?: V9Document;
-  /** @deprecated Use deno com WexelGit integrado. */
+  /** @deprecated Use WexelGit integrado. */
   gitCloneRunner?: (url: string, destination: string) => Promise<ExecResult> | ExecResult;
   /** Token para repositórios privados no git clone. */
   gitToken?: string;
   nativeCliBytes?: BufferSource;
   nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
+  /**
+   * Kernel Linux-WASM ja inicializado (retorno de linux(...) em
+   * linux-node.js/linux-browser.js) e a funcao de captura de saida ligada ao
+   * console_write usado nesse boot. Sem os dois, this.shell fica undefined —
+   * o boot do kernel em si ainda precisa ser feito por quem monta o
+   * NodeExecution, antes de passar pra ca.
+   */
+  kernel?: import("./kernel-busybox-connector.js").BootedKernel;
+  kernelOutput?: (listener: (chunk: string) => void) => () => void;
 }
 
 // ── WexelFileSystem ──────────────────────────────────────────────────────────
@@ -123,311 +131,11 @@ export class WexelFileSystem {
   }
 }
 
-// ── Shell helpers ─────────────────────────────────────────────────────────────
-
-function shellOk(stdout: string): ExecResult  { return { stdout, stderr: "", exitCode: 0 }; }
-function shellErr(stderr: string, exitCode = 1): ExecResult { return { stdout: "", stderr, exitCode }; }
-
-function fmtBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-}
-
-/** Tokenizador que respeita aspas simples, duplas e escapes. */
-function shellTokenize(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: string | null = null;
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (ch === "\\" && !quote) { current += input[++i] ?? ""; continue; }
-    if ((ch === '"' || ch === "'") && !quote) { quote = ch; continue; }
-    if (ch === quote) { quote = null; continue; }
-    if (ch === " " && !quote) { if (current) { tokens.push(current); current = ""; } continue; }
-    current += ch;
-  }
-  if (current) tokens.push(current);
-  return tokens;
-}
-
-function convertWget(args: string[]): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-O" || args[i] === "--output-document") out.push("-o", args[++i]);
-    else if (args[i] === "-q" || args[i] === "--quiet") out.push("-s");
-    else out.push(args[i]);
-  }
-  return out;
-}
-
-const SHELL_HELP = `Wexel Shell — comandos disponíveis:
-
-  Navegação:    pwd  cd  ls  find
-  Arquivos:     cat  head  tail  grep  wc  sort  uniq  mkdir  touch  rm  mv  cp
-  Escrita:      echo  printf
-  Info:         whoami  id  hostname  uname  date  uptime  env  df  du  ps
-  Hash:         sha256sum  md5sum  base64
-  Processos:    sleep  true  false  exit  kill
-  Runtimes:     python  python3  pip  deno  node  bash  sh
-  Pacotes:      npm install  pnpm install  deno add
-  Rede:         curl  wget
-  Git:          git clone  git status  git log  git diff  git commit
-  Wexel:        wexel quota  native-cli  c  cpp  multic  help  clear
-`;
-
-// ── WexelShell ────────────────────────────────────────────────────────────────
-
-export class WexelShell {
-  constructor(private readonly runtime: WexelRuntime) {}
-
-  async exec(command: string): Promise<ExecResult> {
-    const tokens = shellTokenize(command);
-    if (!tokens.length) return shellOk("");
-
-    // VAR=valor inline
-    const envOverrides: Record<string, string> = {};
-    while (tokens[0]?.includes("=") && !/^-/.test(tokens[0])) {
-      const eq  = tokens.shift()!;
-      const idx = eq.indexOf("=");
-      envOverrides[eq.slice(0, idx)] = eq.slice(idx + 1);
-    }
-
-    const [name, ...args] = tokens;
-    if (!name) return shellOk("");
-
-    try {
-      return await this.dispatch(name, args);
-    } catch (error) {
-      return shellErr(`${error instanceof Error ? error.message : String(error)}\n`);
-    }
-  }
-
-  private async dispatch(name: string, args: string[]): Promise<ExecResult> {
-    const fs = this.runtime.fs;
-
-    switch (name) {
-      // ── navegação ──────────────────────────────────────────────────────────
-      case "pwd": return shellOk(fs.pwd() + "\n");
-      case "cd":  fs.cd(args[0] ?? fs.home); return shellOk("");
-      case "ls": {
-        const target  = args.find((a) => !a.startsWith("-"));
-        const long    = args.some((a) => a.startsWith("-") && a.includes("l"));
-        const all     = args.some((a) => a.startsWith("-") && a.includes("a"));
-        const prev    = fs.pwd();
-        if (target) fs.cd(target);
-        let entries = fs.list();
-        if (!all) entries = entries.filter((e) => !e.startsWith("."));
-        if (target) fs.cd(prev);
-        if (long) {
-          return shellOk(entries.map((e) => `drwxr-xr-x 1 wexel wexel 0 Jan  1 00:00 ${e}`).join("\n") + "\n");
-        }
-        return shellOk(entries.join("  ") + "\n");
-      }
-
-      // ── manipulação de arquivos ────────────────────────────────────────────
-      case "mkdir": {
-        const recursive = args.some((a) => a === "-p" || a === "--parents");
-        const targets   = args.filter((a) => !a.startsWith("-"));
-        for (const t of targets) {
-          if (recursive) {
-            let p = "";
-            for (const seg of t.split("/").filter(Boolean)) { p += `/${seg}`; fs.mkdir(p); }
-          } else { fs.mkdir(t); }
-        }
-        return shellOk("");
-      }
-      case "touch": args.filter((a) => !a.startsWith("-")).forEach((f) => fs.touch(f)); return shellOk("");
-      case "rm":    args.filter((a) => !a.startsWith("-")).forEach((f) => fs.remove(f)); return shellOk("");
-      case "mv": {
-        if (args.length < 2) return shellErr("mv: faltam operandos\n", 1);
-        fs.write(args[1], fs.read(args[0])); fs.remove(args[0]); return shellOk("");
-      }
-      case "cp": {
-        if (args.length < 2) return shellErr("cp: faltam operandos\n", 1);
-        fs.write(args[1], fs.read(args[0])); return shellOk("");
-      }
-
-      // ── leitura ────────────────────────────────────────────────────────────
-      case "cat":  return shellOk(args.map((f) => fs.readText(f)).join(""));
-      case "head": {
-        const nIdx = args.indexOf("-n");
-        const n    = nIdx >= 0 ? parseInt(args[nIdx + 1] ?? "10") : 10;
-        const file = args.find((a) => !a.startsWith("-"))!;
-        return shellOk(fs.readText(file).split("\n").slice(0, n).join("\n") + "\n");
-      }
-      case "tail": {
-        const nIdx = args.indexOf("-n");
-        const n    = nIdx >= 0 ? parseInt(args[nIdx + 1] ?? "10") : 10;
-        const file = args.find((a) => !a.startsWith("-"))!;
-        return shellOk(fs.readText(file).split("\n").slice(-n).join("\n") + "\n");
-      }
-      case "wc": {
-        const file  = args.find((a) => !a.startsWith("-"))!;
-        const text  = fs.readText(file);
-        const lines = text.split("\n").length;
-        const words = text.trim().split(/\s+/).length;
-        const bytes = new TextEncoder().encode(text).byteLength;
-        return shellOk(`${lines} ${words} ${bytes} ${file}\n`);
-      }
-      case "grep": {
-        if (args.length < 2) return shellErr("grep: uso: grep <padrão> <arquivo>\n", 2);
-        const iIdx    = args.indexOf("-i");
-        const file    = args.find((a, i) => !a.startsWith("-") && i !== args.indexOf(args.find((x) => !x.startsWith("-"))!));
-        const pattern = args.find((a) => !a.startsWith("-"))!;
-        const actualFile = args.filter((a) => !a.startsWith("-"))[1] ?? args.filter((a) => !a.startsWith("-"))[0];
-        const re      = new RegExp(pattern, iIdx >= 0 ? "i" : "");
-        const lines   = fs.readText(actualFile ?? file ?? "").split("\n").filter((l) => re.test(l));
-        return { stdout: lines.join("\n") + (lines.length ? "\n" : ""), stderr: "", exitCode: lines.length ? 0 : 1 };
-      }
-      case "find": {
-        const all    = fs.snapshot().map((f) => f.path);
-        const nameFlag = args.findIndex((a) => a === "-name");
-        const filter   = nameFlag >= 0 ? args[nameFlag + 1] : undefined;
-        const results  = filter
-          ? all.filter((p) => p.includes(filter.replace(/\*/g, "")))
-          : all;
-        return shellOk(results.join("\n") + "\n");
-      }
-      case "sort": {
-        const file    = args.find((a) => !a.startsWith("-"))!;
-        const lines   = fs.readText(file).split("\n").filter(Boolean);
-        const reverse = args.includes("-r");
-        lines.sort(reverse ? (a, b) => b.localeCompare(a) : undefined);
-        return shellOk(lines.join("\n") + "\n");
-      }
-      case "uniq": {
-        const file  = args.find((a) => !a.startsWith("-"))!;
-        const lines = fs.readText(file).split("\n");
-        return shellOk(lines.filter((l, i) => l !== lines[i - 1]).join("\n") + "\n");
-      }
-
-      // ── escrita ────────────────────────────────────────────────────────────
-      case "echo": {
-        const noNewline = args[0] === "-n";
-        const text = (noNewline ? args.slice(1) : args).join(" ").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
-        return shellOk(noNewline ? text : text + "\n");
-      }
-      case "printf": return shellOk((args[0] ?? "").replace(/\\n/g, "\n").replace(/\\t/g, "\t"));
-
-      // ── info do sistema ────────────────────────────────────────────────────
-      case "whoami":  return shellOk("wexel\n");
-      case "id":      return shellOk("uid=1000(wexel) gid=1000(wexel) groups=1000(wexel)\n");
-      case "hostname":return shellOk("wexel-sandbox\n");
-      case "uname": {
-        if (args.includes("-a")) return shellOk("Linux wexel-sandbox 6.1.0-wexel #1 SMP wasm32 GNU/Linux\n");
-        if (args.includes("-r")) return shellOk("6.1.0-wexel\n");
-        if (args.includes("-m")) return shellOk("wasm32\n");
-        return shellOk("Linux\n");
-      }
-      case "date":    return shellOk(new Date().toUTCString() + "\n");
-      case "uptime":  return shellOk("up 0 min, 1 user, load average: 0.00, 0.00, 0.00\n");
-      case "env":     return shellOk(`HOME=${fs.home}\nPATH=/bin:/usr/bin\nSHELL=/bin/sh\n`);
-      case "printenv":return shellOk(args[0] ? `${args[0]}=\n` : `HOME=${fs.home}\nPATH=/bin:/usr/bin\n`);
-
-      // ── disco ──────────────────────────────────────────────────────────────
-      case "df": {
-        const q     = fs.quota;
-        const used  = Math.round(q.usedBytes / 1024);
-        const avail = Math.round((q.limitBytes - q.usedBytes) / 1024);
-        const total = Math.round(q.limitBytes / 1024);
-        return shellOk(`Filesystem      1K-blocks  Used Available Use% Mounted on\nwexel-vfs       ${total}  ${used}  ${avail}  ${Math.round((used / total) * 100)}% /\n`);
-      }
-      case "du": {
-        const file  = args.find((a) => !a.startsWith("-"));
-        const bytes = file ? fs.read(file).byteLength : fs.snapshot().reduce((s, f) => s + f.data.byteLength, 0);
-        return shellOk(`${Math.ceil(bytes / 1024)}\t${file ?? "."}\n`);
-      }
-
-      // ── hash ───────────────────────────────────────────────────────────────
-      case "sha256sum":
-      case "md5sum": {
-        const file  = args.find((a) => !a.startsWith("-"));
-        if (!file) return shellErr(`${name}: arquivo não especificado\n`, 1);
-        const data  = fs.read(file);
-        const algo  = name === "sha256sum" ? "SHA-256" : "MD5";
-        const buf   = await crypto.subtle.digest(algo, data as unknown as BufferSource);
-        const hex   = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-        return shellOk(`${hex}  ${file}\n`);
-      }
-      case "base64": {
-        const file = args.find((a) => !a.startsWith("-"));
-        if (!file) return shellErr("base64: arquivo não especificado\n", 1);
-        if (args.includes("-d") || args.includes("--decode")) {
-          return shellOk(atob(fs.readText(file)));
-        }
-        const data = fs.read(file);
-        return shellOk(btoa(String.fromCharCode(...data)) + "\n");
-      }
-
-      // ── processos ──────────────────────────────────────────────────────────
-      case "ps":    return shellOk("  PID TTY          TIME CMD\n    1 pts/0    00:00:00 wexel-shell\n");
-      case "kill":  return shellOk("");
-      case "sleep": return await new Promise<ExecResult>((r) => setTimeout(() => r(shellOk("")), (parseFloat(args[0] ?? "1") * 1000)));
-      case "true":  return shellOk("");
-      case "false": return { stdout: "", stderr: "", exitCode: 1 };
-      case "exit":  return { stdout: "", stderr: "", exitCode: parseInt(args[0] ?? "0") || 0 };
-      case "clear": return shellOk("\x1B[2J\x1B[0;0H");
-
-      // ── runtimes ───────────────────────────────────────────────────────────
-      case "python":
-      case "python3": return this.runtime.exec({ language: "python", file: args[0], args: args.slice(1) });
-      case "pip":
-      case "pip3":
-        if (!this.runtime.permissions.network) return shellErr("pip: permissão de rede negada\n", 1);
-        return this.runtime.packages.pip(args);
-      case "deno":  return this.runtime.deno(args);
-      case "node":  return this.runtime.node(args);
-      case "bash":
-      case "sh":    return this.runtime.bash(args);
-
-      // ── gerenciador de pacotes ─────────────────────────────────────────────
-      case "npm":
-      case "pnpm":  return this.runtime.denoPackages([name, ...args]);
-
-      // ── rede ───────────────────────────────────────────────────────────────
-      case "curl":
-      case "wget":
-        if (!this.runtime.permissions.network) return shellErr(`${name}: permissão de rede negada\n`, 1);
-        return runCurl(name === "wget" ? convertWget(args) : args, {
-          fs: this.runtime.fs,
-          fetcher: this.runtime.networkFetch,
-        });
-
-      // ── git ────────────────────────────────────────────────────────────────
-      case "git": return this.runtime.gitExec(args);
-
-      // ── C / C++ / MultiC ────────────────────────────────────────────────────
-      case "c": return this.runtime.nativeLanguage("c", args);
-      case "cpp": return this.runtime.nativeLanguage("cpp", args);
-      case "multic": return this.runtime.multic(args);
-
-      // ── extensões nativas ──────────────────────────────────────────────────
-      case "native-cli": return this.runtime.nativeCli(args);
-
-      // ── wexel ──────────────────────────────────────────────────────────────
-      case "wexel": {
-        if (args[0] === "quota") {
-          const q = fs.quota;
-          return shellOk(`Usado: ${fmtBytes(q.usedBytes)} / ${fmtBytes(q.limitBytes)} (${Math.round((q.usedBytes / q.limitBytes) * 100)}%)\n`);
-        }
-        return shellOk("Uso: wexel quota\n");
-      }
-
-      case "help":
-      case "man": return shellOk(SHELL_HELP);
-
-      default:
-        return { stdout: "", stderr: `${name}: comando não encontrado\nDigite 'help' para ver os comandos disponíveis.\n`, exitCode: 127 };
-    }
-  }
-}
-
 // ── WexelRuntime ──────────────────────────────────────────────────────────────
 
 export class WexelRuntime {
-  readonly shell:       WexelShell;
+  /** undefined ate que options.kernel + options.kernelOutput sejam fornecidos (kernel ja precisa estar de pe). */
+  readonly shell?:      WexelShell;
   readonly permissions: Required<WexelPermissions>;
   readonly fs:          WexelFileSystem;
   readonly mode:        "load-only" | "run";
@@ -438,21 +146,19 @@ export class WexelRuntime {
   readonly networkFetch: typeof fetch;
 
   private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
-  private readonly _denoRunner?:  WexelOptions["denoRunner"];
-  private readonly _denoRuntime?: import("./deno-wasm.js").DenoRuntime;
+  private readonly _wexelJsRunner?: WexelOptions["wexelJsRunner"];
   private readonly bashRunner?:   WexelOptions["bashRunner"];
   private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
   private readonly gitToken?:     string;
   private readonly nativeCliBytes?: BufferSource;
   private _git?:          WexelGit;
-  private _denoPkgMgr?:  DenoPackageManager;
+
 
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.mode         = options.mode ?? "run";
     this.fs           = options.fs ?? new WexelFileSystem(options.storageQuotaBytes, options.homeDirectory);
     this.pythonRunner = options.pythonRunner ?? options.pythonRunnerFactory?.(this.fs);
-    this._denoRuntime = options.deno;
-    this._denoRunner  = options.denoRunner ?? options.denoRuntime?.run.bind(options.denoRuntime);
+    this._wexelJsRunner = options.wexelJsRunner;
     this.bashRunner   = options.bashRunner;
     this.networkFetch = options.networkFetch ?? fetch;
     this.gitCloneRunner = options.gitCloneRunner;
@@ -460,7 +166,10 @@ export class WexelRuntime {
     this.nativeCliBytes = options.nativeCliBytes;
     this.packages     = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl, fetcher: this.networkFetch });
     this.permissions  = { network: false, storage: true, files: false, modules: true, ...options.permissions };
-    this.shell        = new WexelShell(this);
+    if (options.kernel && options.kernelOutput) {
+      this.shell = new WexelShell(options.kernel, options.kernelOutput);
+    }
+    // sem kernel+kernelOutput, this.shell fica undefined (ver WexelOptions.kernel)
   }
 
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
@@ -473,9 +182,9 @@ export class WexelRuntime {
 
   // ── exec principal ─────────────────────────────────────────────────────────
 
-  /** Conecta um backend Deno à VFS desta sandbox após a criação do runtime. */
-  attachDenoRunner(runner: NonNullable<WexelOptions["denoRunner"]>): void {
-    (this as unknown as { _denoRunnerMutable?: NonNullable<WexelOptions["denoRunner"]> })._denoRunnerMutable = runner;
+  /** Conecta um runner Wexel.js à VFS desta sandbox após a criação do runtime. */
+  attachWexelJsRunner(runner: NonNullable<WexelOptions["wexelJsRunner"]>): void {
+    (this as unknown as { _wexelJsRunnerMutable?: NonNullable<WexelOptions["wexelJsRunner"]> })._wexelJsRunnerMutable = runner;
   }
 
   async exec(request: ExecRequest): Promise<ExecResult> {
@@ -484,13 +193,9 @@ export class WexelRuntime {
 
     if (request.language === "javascript" || request.language === "typescript") {
       const code = request.code ?? (request.file ? this.fs.readText(request.file) : "");
-      // Prioridade: DenoRuntime unificado > denoRunner legado
-      if (this._denoRuntime) {
-        return this._denoRuntime.run(code, request.language, request.args ?? []);
-      }
-      const runner = this._denoRunner ?? (this as unknown as { _denoRunnerMutable?: WexelOptions["denoRunner"] })._denoRunnerMutable;
+      const runner = this._wexelJsRunner ?? (this as unknown as { _wexelJsRunnerMutable?: WexelOptions["wexelJsRunner"] })._wexelJsRunnerMutable;
       if (runner) return await runner(code, request.language, request.args ?? []);
-      throw new Error("Runtime Deno não foi registrado. Use DenoRuntime.create() nas opções.");
+      throw new Error("Runtime Wexel.js não foi registrado. Forneça wexelJsRunner nas opções.");
     }
 
     if (request.language === "python") {
@@ -502,36 +207,30 @@ export class WexelRuntime {
     return { stdout: request.code ?? "", stderr: "", exitCode: 0 };
   }
 
-  // ── deno shell ────────────────────────────────────────────────────────────
+  // ── wexeljs shell (Node.js-compatível, via Wexel.js) ────────────────────────
 
-  async deno(args: string[]): Promise<ExecResult> {
+  async wexeljs(args: string[]): Promise<ExecResult> {
     const [command, target, ...scriptArgs] = args;
     if (command === "--version" || command === "version") {
-      // Lê versão real do manifesto se disponível
-      try {
-        const manifest = JSON.parse(this.fs.exists("/wexel-deno-manifest.json")
-          ? this.fs.readText("/wexel-deno-manifest.json")
-          : "{}") as { denoVersion?: string; v8Version?: string; typescriptVersion?: string };
-        const dv = manifest.denoVersion ?? "deno 2.3.5 (stable, release, x86_64)";
-        const v8 = manifest.v8Version    ?? "v8 13.7.152.6-rusty";
-        const ts = manifest.typescriptVersion ?? "typescript 5.8.3";
-        return { stdout: `${dv}\n${v8}\n${ts}\n`, stderr: "", exitCode: 0 };
-      } catch {
-        return { stdout: "deno 2.3.5 (stable, release, x86_64)\nv8 13.7.152.6-rusty\ntypescript 5.8.3\n", stderr: "", exitCode: 0 };
-      }
+      return { stdout: "wexel.js v24.13.2-pre (edge.js + quickjs-ng)\n", stderr: "", exitCode: 0 };
     }
     if (command === "eval" && target !== undefined) return this.exec({ language: "javascript", code: target, args: scriptArgs });
     if (command === "run" && target) {
-      const language = denoLanguage(target);
-      if (!language) return { stdout: "", stderr: `deno: extensão não suportada: ${target}\n`, exitCode: 2 };
+      const language = scriptLanguage(target);
+      if (!language) return { stdout: "", stderr: `wexeljs: extensão não suportada: ${target}\n`, exitCode: 2 };
       return this.exec({ language, file: target, args: scriptArgs });
     }
-    if (command === "add" || command === "install") return this.denoPackages(["deno", command, target ?? "", ...scriptArgs]);
-    if (command === "fmt") return { stdout: "", stderr: "deno fmt: não suportado no Wexel\n", exitCode: 1 };
-    return { stdout: "", stderr: "Uso: deno run <arquivo.js|.ts> | deno eval <código> | deno add <pkg> | deno --version\n", exitCode: 2 };
+    // instalação de pacotes agora é feita pelo npm/pnpm reais embutidos no
+    // proprio Wexel.js (ver assets/wexeljs/pnpm.cjs), não por um gerenciador
+    // separado — delega pro shell (BusyBox+kernel) rodando o binario real.
+    if (command === "add" || command === "install") {
+      if (!this.shell) return { stdout: "", stderr: "Shell (BusyBox/kernel) não foi registrado.\n", exitCode: 2 };
+      return this.shell.exec(`pnpm install ${target ?? ""} ${scriptArgs.join(" ")}`.trim());
+    }
+    return { stdout: "", stderr: "Uso: wexeljs run <arquivo.js|.ts> | wexeljs eval <código> | wexeljs add <pkg> | wexeljs --version\n", exitCode: 2 };
   }
 
-  // ── node (via denoRunner se disponível) ───────────────────────────────────
+  // ── node (via wexelJsRunner se disponível) ──────────────────────────────────
 
   async node(args: string[]): Promise<ExecResult> {
     if (!args[0]) return { stdout: "", stderr: "Uso: node <arquivo.js>\n", exitCode: 2 };
@@ -568,19 +267,6 @@ export class WexelRuntime {
 
   async curlExec(args: string[]): Promise<ExecResult> {
     return runCurl(args, { fs: this.fs, fetcher: this.networkFetch });
-  }
-
-  // ── gerenciador de pacotes Deno ───────────────────────────────────────────
-
-  async denoPackages(argv: string[]): Promise<ExecResult> {
-    if (!this._denoPkgMgr) {
-      this._denoPkgMgr = new DenoPackageManager({
-        fs:             this.fs,
-        networkAllowed: this.permissions.network,
-        runner: (code, language, args) => this.exec({ language, code, args }),
-      });
-    }
-    return this._denoPkgMgr.exec(argv);
   }
 
   // ── módulos / extensões ───────────────────────────────────────────────────
@@ -679,7 +365,7 @@ async function defaultCoreBytes(): Promise<ArrayBuffer> {
   catch { throw new Error("Wexel Assembly core não encontrado. Execute o build ou forneça coreBytes."); }
 }
 
-function denoLanguage(path: string): "javascript" | "typescript" | undefined {
+function scriptLanguage(path: string): "javascript" | "typescript" | undefined {
   const ext = path.split("?")[0].split(".").pop()?.toLowerCase();
   if (ext === "js" || ext === "mjs" || ext === "cjs") return "javascript";
   if (ext === "ts" || ext === "mts" || ext === "cts" || ext === "tsx") return "typescript";
@@ -703,20 +389,9 @@ export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExten
 export { compileNativeSource, runNativeSource, type CompileOptions, type CompileResult, type RunOptions, type RunResult } from "./native-compiler.js";
 export { parseMultiC, runMultiCFile, runMultiCSource, runMultiCVfs, type MultiCOptions, type MultiCResult, type MultiCSection, type MultiCLanguage } from "./multic.js";
 export { RustV, type RustVOptions } from "./rustv.js";
-export { DenoWasmRuntime, DenoRuntime, DENO_WASM_ABI_VERSION } from "./deno-wasm.js";
-export { instantiateDenoWasm, loadDenoWasm, DENO_WASM_HOST_ABI, type DenoWasmHostOptions, type DenoWasmHostInstance } from "./deno-wasm-host.js";
-export { DenoLinuxAdapter, DENO_LINUX_ADAPTER_ABI, DENO_LINUX_HOST_CALLS, type DenoLinuxAdapterOptions, type DenoLinuxHostCall } from "./deno-linux-adapter.js";
-export { DenoBrowserHost, type DenoBrowserHostOptions } from "./deno-browser-host.js";
-export { DENO_BROWSER_ENTRYPOINT, createDenoBrowserWorkerSource } from "./deno-browser-worker.js";
-export { runDenoBrowser, disposeDenoBrowser, isBrowserDenoSupported } from "./deno-browser-bridge.js";
-export { createWasmFsChannel, serveWasmFs, WasmFsClient, type WasmFsChannel } from "./deno-wasm-fs.js";
-export { DenoNodeNet, createDenoNodeFetcher } from "./deno-node-net.js";
 export { WexelPersistentFS, WexelIDBFS, type PersistentFSOptions } from "./persistent-fs.js";
-export { createDenoNativeRunner, resolvedenoBin, type DenoNativeOptions } from "./deno-native-adapter.js";
-export { DENO_LINUX_WASM_ABI, translateDenoLinuxSyscall, type DenoLinuxSyscall, type DenoLinuxWasmCall, type DenoLinuxWasmHost, type DenoLinuxWasmResult } from "./deno-linux-wasm-translator.js";\nexport { X64_WASM_TRANSLATOR_ABI, translateX64ToWasm, x64RegisterName, x64RegisterIndex, type X64Register, type X64Instruction, type X64TranslationDiagnostic, type X64TranslationResult, type X64WasmTranslatorOptions } from "./x86-64-wasm-translator.js";
-export { DenoLinuxWasmHostBridge, type DenoLinuxWasmHostOptions } from "./deno-linux-wasm-host.js";
+export { X64_WASM_TRANSLATOR_ABI, translateX64ToWasm, x64RegisterName, x64RegisterIndex, type X64Register, type X64Instruction, type X64TranslationDiagnostic, type X64TranslationResult, type X64WasmTranslatorOptions } from "./x86-64-wasm-translator.js";
 export { WexelGit, type GitOptions } from "./git.js";
 export { runCurl, type CurlOptions, type CurlResult } from "./curl.js";
-export { DenoPackageManager, type DenoPackageManagerOptions } from "./deno-package-manager.js";
 export { WebPink, WebPinkClient, type WebPinkMessage, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
 export type { WexelCoreInstance } from "@wexel/core";

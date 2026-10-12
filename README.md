@@ -1,6 +1,6 @@
 # Wexel
 
-[![Version](https://img.shields.io/badge/version-3.0.0-blue)](https://github.com/augustomiguelfarias7-cmd/wexel)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue)](https://github.com/augustomiguelfarias7-cmd/wexel)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](https://github.com/augustomiguelfarias7-cmd/wexel/blob/main/LICENSE.md)
 [![GitHub stars](https://img.shields.io/github/stars/augustomiguelfarias7-cmd/wexel?style=flat)](https://github.com/augustomiguelfarias7-cmd/wexel/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/augustomiguelfarias7-cmd/wexel?style=flat)](https://github.com/augustomiguelfarias7-cmd/wexel/network/members)
@@ -9,20 +9,22 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![WebAssembly](https://img.shields.io/badge/WebAssembly-supported-654FF0?logo=webassembly)](https://webassembly.org/)
 
-**Wexel 3.0** is a WebAssembly execution runtime and JavaScript/TypeScript SDK for running controlled embedded runtimes inside applications and backend services.
+**Wexel 4.0** is a WebAssembly execution runtime and JavaScript/TypeScript SDK for running controlled embedded runtimes inside applications and backend services.
 
 Wexel provides a virtual filesystem, shell execution, WebAssembly modules, language adapters, isolated Node.js sandboxes, controlled networking and native WebAssembly tooling without requiring application code to directly manage the underlying runtime infrastructure.
 
 ## Highlights
 
 - WebAssembly-first execution
-- Deno 2.3.5 native
-- JavaScript and TypeScript through Deno (deno native)
-- Linux-like virtual shell with 40+ commands (`ls -la`, `grep`, `find`, `sha256sum`, `df`...)
+- **New in 4.0:** Wexel.js — Node.js-compatible JS runtime (based on Edge.js + QuickJS-NG), compiled through the real WASIX toolchain, with `npm`/`pnpm` built in
+- **New in 4.0:** real Linux kernel compiled to WebAssembly (NOMMU), running a genuine BusyBox shell inside `NodeExecution` via `worker_threads`
+- **New in 4.0:** shell now runs on the real BusyBox inside that kernel instead of a 40-command reimplementation
+- **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
+- **New in 4.0:** Go and Zig toolchain support (compile to `wasm32`/`wasm32-wasi` and run inside Wexel)
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
-- npm and `deno add` through the integrated Deno package manager
+- npm and pnpm through the real package managers bundled in Wexel.js
 - Isolated backend sandboxes through `NodeExecution`
 - Per-sandbox permissions and storage quotas
 - Controlled networking through WebPink
@@ -70,7 +72,7 @@ The runtime operates against its virtual filesystem instead of directly exposing
 
 ## Runtime Architecture
 
-Wexel 3.0 is organized around several execution layers:
+Wexel 4.0 is organized around several execution layers:
 
 ```text
 Application
@@ -83,12 +85,15 @@ Wexel Runtime
     ├── Permissions
     ├── Storage Quota
     │
-    ├── Deno native runtime
+    ├── Wexel.js (Edge.js + QuickJS-NG, Node-compatible)
+    ├── Linux kernel (WebAssembly, NOMMU) + BusyBox
     ├── CPython / WASI
-    ├── BusyBox
     ├── Native WASM Extensions
     └── V9
 ```
+
+See `packages/wexel/assets/README-4.0.md` for details on the new 4.0 artifacts
+(the compiled kernel, Wexel.js, and their integration points).
 
 For backend applications, `NodeExecution` adds another layer:
 
@@ -113,15 +118,19 @@ Node.js / Express / Fastify / API
 
 Each sandbox is created independently and receives its own runtime instance and virtual filesystem.
 
-## Deno
+## Wexel.js
 
-Wexel 3.0 ships Deno 2.3.5 as a bundled native runtime (`assets/deno/deno.gz`). `DenoRuntime` selects the appropriate execution path for the target environment.
+Wexel 4.0 ships Wexel.js — a Node.js-compatible JavaScript/TypeScript runtime
+based on Edge.js with QuickJS-NG embedded, compiled through the real WASIX
+toolchain (`assets/wexeljs/edgejs.wasm`). It replaces the Deno-based runtime
+used in earlier versions. `wexelJsRunner` plugs the engine into a
+`WexelRuntime`.
 
 ```ts
-import { DenoRuntime, Wexel } from "wexel";
+import { Wexel } from "wexel";
 
 const runtime = await Wexel.create({
-  deno: DenoRuntime.create({ fs: /* injected automatically */ null as any }),
+  wexelJsRunner: myWexelJsRunner, // executes code via assets/wexeljs/edgejs.wasm
   permissions: { network: true },
 });
 
@@ -137,32 +146,30 @@ runtime.fs.write("/app.ts", `
   const u: User = { login: "wexel" };
   console.log(u.login);
 `);
-await runtime.shell.exec("deno run /app.ts");
+await runtime.shell.exec("wexeljs run /app.ts");
 
-// Package management
-await runtime.shell.exec("deno add jsr:@std/path");
+// Package management (real npm/pnpm bundled in Wexel.js)
 await runtime.shell.exec("npm install lodash");
-await runtime.shell.exec("npm install axios");
+await runtime.shell.exec("pnpm install axios");
 ```
 
 Supported shell commands:
 
 ```text
-deno run <file.js|file.ts> [args]
-deno eval <code>
-deno add <specifier>
-deno install
-deno --version
+wexeljs run <file.js|file.ts> [args]
+wexeljs eval <code>
+wexeljs add <pkg>
+wexeljs --version
 node <file.js>
 npm install <pkg>
-npm install <pkg>
+pnpm install <pkg>
 ```
 
-**Browser:** uses the Wexel browser execution bridge and VFS. When the browser cannot provide the required isolation primitives, Wexel falls back to its JavaScript compatibility path.
+The shell itself (`runtime.shell`) runs on the real BusyBox binary inside the
+Linux kernel compiled to WebAssembly (`assets/linux-kernel/`), wired up via
+`kernel-boot.ts` — see `packages/wexel/assets/README-4.0.md` for details.
 
-**Node.js:** uses the native `deno.gz` binary decompressed at first run. No download required.
-
-HTML remains part of the V9 environment rather than the Deno runtime.
+HTML remains part of the V9 environment rather than the Wexel.js runtime.
 
 ## Virtual Filesystem
 
@@ -228,7 +235,8 @@ Create an execution manager:
 ```ts
 const execution = await NodeExecution.create({
   coreBytes,
-  denoRuntime,
+  wexelJsRunner,
+  linuxKernel, // ver kernel-boot.ts
 });
 ```
 
@@ -247,7 +255,7 @@ sandbox.runtime.fs.write(
 );
 
 const result = await sandbox.runtime.shell.exec(
-  "deno run /app.ts",
+  "wexeljs run /app.ts",
 );
 
 console.log(result);
@@ -457,7 +465,7 @@ HTML/CSS
 JavaScript/TypeScript
    │
    ▼
-Deno WASM
+Wexel.js (Edge.js + QuickJS-NG)
 ```
 
 ## Load-only Mode
@@ -488,13 +496,8 @@ Main package:
 ```ts
 import {
   Wexel,
-  DenoRuntime,
-  DenoWasmRuntime,        // compatibilidade legada
-  DenoBrowserHost,
   WexelGit,
   runCurl,
-  DenoPackageManager,
-  installDenoServiceWorker,
   checkBrowserSupport,
   createBusyBoxRunner,
   compileNativeSource,
@@ -640,7 +643,6 @@ Important runtime components include:
 ```text
 packages/wexel/src/
 ├── index.ts
-├── deno-wasm.ts
 ├── node-execution.ts
 ├── node-cpython.ts
 ├── busybox.ts
@@ -664,8 +666,15 @@ Wexel's permissions, filesystem quotas, virtual filesystem and WebPink policies 
 Current package version:
 
 ```text
-3.0.0
+4.0.0
 ```
+
+Wexel 4.0 adds Wexel.js (a Node.js-compatible JS runtime based on Edge.js and
+QuickJS-NG, compiled through the real WASIX toolchain), a real Linux kernel
+compiled to WebAssembly running an actual BusyBox shell inside
+`NodeExecution`, a WebPink-aware adapter for the real `pip`, and Go/Zig
+toolchain support. See `packages/wexel/assets/README-4.0.md` for details on
+the new artifacts and `CHANGELOG.md`-style notes above for prior versions.
 
 Wexel 3.0 introduced the Deno runtime integration, NodeExecution sandbox manager, WebPink networking layer, Linux-like VFS improvements and associated package/export updates.
 

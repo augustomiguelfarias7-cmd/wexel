@@ -2,12 +2,10 @@ import { randomUUID } from "node:crypto";
 import { createBusyBoxRunner, type BusyBoxFactory } from "./busybox.js";
 import { createWasiPythonRunner, type WasiPythonOptions } from "./node-cpython.js";
 import { nodeWasiPythonRunnerFactory, type NodeWasiPythonOptions } from "./node-wasi-python.js";
-import { DenoWasmRuntime } from "./deno-wasm.js";
-import { createDenoNativeRunner, type DenoNativeOptions } from "./deno-native-adapter.js";
-import { runDenoNodeWorker } from "./deno-node-worker.js";
-import { Wexel, type WexelPermissions, type WexelRuntime } from "./index.js";
+import { Wexel, type WexelPermissions, type WexelRuntime, type ExecResult } from "./index.js";
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
+import { bootKernel } from "./kernel-boot.js";
 
 export interface NodeExecutionBusyBoxOptions {
   factory: BusyBoxFactory;
@@ -17,17 +15,10 @@ export interface NodeExecutionBusyBoxOptions {
 
 export interface NodeExecutionOptions {
   coreBytes: BufferSource;
-  denoRuntime?: DenoWasmRuntime;
-  /**
-   * Backend padrão: Deno nativo é lançado como processo interno da sandbox
-   * Wexel, com VFS materializada, permissões e rede controladas.
-   */
-  denoNative?: Omit<DenoNativeOptions, "env"> | false;
-  /**
-   * Worker/shim legado. Desligado por padrão. Mantido apenas para compatibilidade
-   * com projetos antigos que ainda dependem dessa implementação.
-   */
-  denoNodeWorker?: boolean;
+  /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG). Ver assets/wexeljs/edgejs.wasm. */
+  wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
+  /** Kernel Linux-WASM (ver kernel-boot.ts). Sem isso, sandbox.shell fica undefined. */
+  linuxKernel?: Parameters<typeof bootKernel>[0];
   python?: Omit<WasiPythonOptions, "fs">;
   pythonWasi?: Omit<NodeWasiPythonOptions, "fs"> | false;
   busyBox?: NodeExecutionBusyBoxOptions;
@@ -56,6 +47,13 @@ export class NodeExecution {
   private readonly sandboxes = new Map<string, BackendSandbox>();
   private readonly busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>;
   readonly webPink?: WebPink;
+  /**
+   * Kernel Linux-WASM compartilhado entre sandboxes (bootado uma unica vez,
+   * de forma preguicosa). NAO e isolado por sandbox ainda - e uma
+   * simplificacao conhecida; isolamento real (um kernel por sandbox) fica
+   * pro proximo passo.
+   */
+  private kernelBoot?: ReturnType<typeof bootKernel>;
 
   private constructor(
     private readonly options: NodeExecutionOptions,
@@ -64,6 +62,12 @@ export class NodeExecution {
   ) {
     this.busyBox = busyBox;
     this.webPink = webPink;
+  }
+
+  private getKernel() {
+    if (!this.options.linuxKernel) return undefined;
+    if (!this.kernelBoot) this.kernelBoot = bootKernel(this.options.linuxKernel);
+    return this.kernelBoot;
   }
 
   static async create(options: NodeExecutionOptions): Promise<NodeExecution> {
@@ -91,35 +95,17 @@ export class NodeExecution {
     const webPink = this.webPink?.createClient(id, options.webPink);
     const sandboxFetcher = webPink?.fetch.bind(webPink) as typeof fetch | undefined;
 
-    const nativeDeno = this.options.denoNative === false
-      ? undefined
-      : {
-          ...(this.options.denoNative ?? {}),
-          networkAllowed: !!options.permissions?.network,
-          timeoutMs: this.options.denoNative?.timeoutMs ?? 30_000,
-        };
-
-    const useLegacyWorker = this.options.denoNodeWorker === true && !nativeDeno && !this.options.denoRuntime;
+    const kernelBoot = await this.getKernel();
 
     const runtime = await Wexel.create({
       coreBytes: this.options.coreBytes,
+      kernel: kernelBoot?.kernel,
+      kernelOutput: kernelBoot?.kernelOutput,
       permissions: options.permissions,
       storageQuotaBytes: options.storageQuotaBytes,
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
       fs: options.fs,
-      denoRuntime: this.options.denoRuntime,
-      denoRunner: useLegacyWorker
-          ? (code, language, args) => runDenoNodeWorker(
-              runtime.fs,
-              {
-                networkAllowed: !!options.permissions?.network,
-                fetcher: sandboxFetcher ?? fetch,
-                timeoutMs: 30_000,
-                preferNative: false,
-              },
-              { code, language: language as "javascript" | "typescript", args },
-            )
-          : undefined,
+      wexelJsRunner: this.options.wexelJsRunner,
       pythonRunnerFactory: this.options.python
         ? (fs) => createWasiPythonRunner({ ...this.options.python!, fs })
         : this.options.pythonWasi === false
@@ -132,13 +118,6 @@ export class NodeExecution {
       nativeCliBytes: this.options.nativeCliBytes,
       nativeExtensions: this.options.nativeExtensions,
     });
-
-    if (nativeDeno) {
-      runtime.attachDenoRunner(createDenoNativeRunner(runtime.fs, {
-        ...nativeDeno,
-        env: { WEXEL_SANDBOX_ID: id },
-      }));
-    }
 
     const sandbox = { id, runtime, createdAt: Date.now(), webPink };
     this.sandboxes.set(id, sandbox);
