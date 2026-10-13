@@ -7,6 +7,8 @@ export interface LanguageExecutorOptions {
   artifact: BufferSource;
   language: CompiledLanguage;
   fs: WexelFileSystem;
+  /** Explicit imports required by the executor artifact (for example, a WASI host). */
+  imports?: WebAssembly.Imports;
 }
 
 type ExecutorExports = WebAssembly.Exports & {
@@ -35,7 +37,7 @@ export class WexelLanguageExecutor {
   ) {}
 
   static async load(options: LanguageExecutorOptions): Promise<WexelLanguageExecutor> {
-    const { instance } = await WebAssembly.instantiate(options.artifact, {});
+    const { instance } = await WebAssembly.instantiate(options.artifact, options.imports ?? {});
     const exports = instance.exports as ExecutorExports;
     if (!(exports.memory instanceof WebAssembly.Memory)) {
       throw new Error(`Executor ${options.language} inválido: exporta memory ausente.`);
