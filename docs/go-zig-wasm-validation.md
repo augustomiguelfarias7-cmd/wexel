@@ -23,11 +23,13 @@ Retried the build with the correct browser target, `GOOS=js GOARCH=wasm`. It cou
 
 A separate technical approach is to write a small WASI command wrapper around Yaegi that reads source from argv/stdin. That would be a different artifact and would still need the Yaegi module dependencies and a working WASI host adapter.
 
-### Zig interpreter/compiler — BLOCKED
+### Zig compiler — candidate identified, integration blocked
 
-No general-purpose, ready-made Zig-language interpreter WASM artifact was found in the evaluated public sources. Zig's official language overview describes Zig as a compiled language and notes that a third-party interpreter would be a future possibility. The available `zigc-wasm` v0.11.0 release is a **compiler built to run as WebAssembly**, not an interpreter for Zig source and not a Wexel executor.
+A concrete public compiler release was identified through GitHub API metadata: [zig-wasm/zigc-wasm v0.11.0](https://github.com/zig-wasm/zigc-wasm/releases/tag/v0.11.0). Its assets include `zig_small.wasm` (5,018,805 bytes), `zig_fast.wasm` (37,211,642 bytes), stripped variants, and `std.zip` (2,871,033 bytes). The compiler release uses The Unlicense. The companion [wasi-zigc wrapper](https://github.com/zig-wasm/wasi-zigc) is MIT-licensed and demonstrates hosting the compiler with `@bjorn3/browser_wasi_shim`.
 
-The release metadata lists a WASM compiler and a separate standard-library archive. An attempt to download the public compiler artifact failed because DNS/network access to `github.com` is unavailable. Zig is not installed in this environment, and no Zig compiler artifact was available locally. Therefore, neither Zig source compilation nor execution was tested.
+The wrapper invokes `zigc.wasm build-exe input.zig -Dtarget=wasm64-wasi -fno-llvm -fno-lld -O ReleaseSmall`, preopens the input file, standard library, and cache, and imports `wasi_snapshot_preview1`. This is a compiler candidate, not a Zig interpreter. It does **not** directly implement Wexel Language Executor ABI v1. Wexel needs a dedicated WASI host adapter that maps source and standard-library files, captures compiler output, and then runs the emitted module with a compatible WASI/Memory64-capable host where required.
+
+The binary asset transfer was attempted, but the execution environment did not make the release bytes available: the direct download was blocked and outbound hostname resolution is unavailable from the local build environment. No compiler bytes were obtained for checksum verification or execution. Zig is not installed locally either, so no `.zig` source was compiled or run in this attempt. The candidate is identified and technically characterized, but it must not be described as integrated or validated until the artifact is retrieved and a source compile/run test passes.
 
 ### WebAssembly's native API is not a Go/Zig interpreter
 
@@ -88,8 +90,8 @@ The new architecture note is `docs/go-zig-artifact-memory.md`. This does not cha
 ### Zig compiler
 
 - Confirmed the local environment has no `zig` executable and no Zig compiler WASM artifact in the local artifact kit.
-- Public leads such as `zigc-wasm` describe a Zig compiler compiled to WebAssembly, but the GitHub endpoint redirects and the available transfer/build environment could not retrieve a usable compiler artifact.
-- No Zig source was compiled in this retry. No Zig artifact is being published as if it were validated.
+- Follow-up research pinned a concrete `zig-wasm/zigc-wasm` v0.11.0 release: its API metadata lists `zig_small.wasm`, larger/stripped variants, and `std.zip`. The binary transfer still failed in this environment, so the candidate is identified but not downloaded, verified, or run.
+- No Zig source was compiled in this retry. The public compiler candidate is documented above, but no Zig artifact is being published as if it were downloaded and validated.
 
 ### Publication decision
 
