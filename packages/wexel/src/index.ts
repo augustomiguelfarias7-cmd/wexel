@@ -8,6 +8,7 @@ import { WexelGit } from "./git.js";
 import { runCurl } from "./curl.js";
 
 import { runNativeSource } from "./native-compiler.js";
+import { WexelLanguageExecutor, type CompiledLanguage } from "./language-executors.js";
 import { runMultiCVfs } from "./multic.js";
 import { WexelShell } from "./shell.js";
 
@@ -56,6 +57,10 @@ export interface WexelOptions {
   /** Token para repositórios privados no git clone. */
   gitToken?: string;
   nativeCliBytes?: BufferSource;
+  /** Go executor/compiler artifact implementing Wexel Language Executor ABI v1. */
+  goExecutorBytes?: BufferSource;
+  /** Zig executor/compiler artifact implementing Wexel Language Executor ABI v1. */
+  zigExecutorBytes?: BufferSource;
   nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
   /**
    * Kernel Linux-WASM ja inicializado (retorno de linux(...) em
@@ -151,6 +156,7 @@ export class WexelRuntime {
   private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
   private readonly gitToken?:     string;
   private readonly nativeCliBytes?: BufferSource;
+  private readonly languageExecutors = new Map<CompiledLanguage, WexelLanguageExecutor>();
   private _git?:          WexelGit;
 
 
@@ -175,6 +181,8 @@ export class WexelRuntime {
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
     const bytes   = options.coreBytes ?? await defaultCoreBytes();
     const runtime = new WexelRuntime(await instantiateCore(bytes), options);
+    if (options.goExecutorBytes) runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({ language: "go", artifact: options.goExecutorBytes, fs: runtime.fs }));
+    if (options.zigExecutorBytes) runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({ language: "zig", artifact: options.zigExecutorBytes, fs: runtime.fs }));
     for (const ext of options.nativeExtensions ?? []) await runtime.loadNativeExtension(ext.manifest, ext.source);
     runtime.buzz.emit("runtime:ready", { mode: runtime.mode });
     return runtime;
@@ -196,6 +204,13 @@ export class WexelRuntime {
       const runner = this._wexelJsRunner ?? (this as unknown as { _wexelJsRunnerMutable?: WexelOptions["wexelJsRunner"] })._wexelJsRunnerMutable;
       if (runner) return await runner(code, request.language, request.args ?? []);
       throw new Error("Runtime Wexel.js não foi registrado. Forneça wexelJsRunner nas opções.");
+    }
+
+    if (request.language === "go" || request.language === "zig") {
+      if (!request.file) throw new Error(`Executor ${request.language} exige um arquivo na VFS; use /home/main.${request.language}.`);
+      const executor = this.languageExecutors.get(request.language);
+      if (!executor) throw new Error(`Executor ${request.language} não registrado. Configure ${request.language === "go" ? "goExecutorBytes" : "zigExecutorBytes"} com um artefato Wexel Language Executor ABI v1.`);
+      return executor.runFile(request.file, request.args ?? []);
     }
 
     if (request.language === "python") {
@@ -387,6 +402,7 @@ export { PythonPackageManager, type PackageInstallResult, type PackageManagerOpt
 export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
 export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
 export { compileNativeSource, runNativeSource, type CompileOptions, type CompileResult, type RunOptions, type RunResult } from "./native-compiler.js";
+export { WexelLanguageExecutor, type LanguageExecutorOptions, type CompiledLanguage } from "./language-executors.js";
 export { parseMultiC, runMultiCFile, runMultiCSource, runMultiCVfs, type MultiCOptions, type MultiCResult, type MultiCSection, type MultiCLanguage } from "./multic.js";
 export { RustV, type RustVOptions } from "./rustv.js";
 export { WexelPersistentFS, WexelIDBFS, type PersistentFSOptions } from "./persistent-fs.js";
