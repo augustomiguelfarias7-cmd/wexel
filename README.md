@@ -208,19 +208,19 @@ await runtime.shell.exec("cd ~");
 
 The filesystem is virtual. Operations against these paths do not automatically access the host filesystem.
 
-### Storage quotas and Memory64 storage
+### Storage quotas and Memory64
 
-Wexel's filesystem storage is backed by the virtual filesystem (VFS), not by automatic access to the host filesystem. The VFS manages file and directory metadata, while file contents are stored in the memory region assigned to the filesystem implementation.
+**Memory64** is a WebAssembly feature that allows linear memories to use 64-bit address indexes instead of the 32-bit indexes used by traditional WASM32 memories. This makes address spaces larger than 4 GiB possible in compatible engines and toolchains. It does not mean that a runtime automatically has that much physical RAM available. See the [WebAssembly Memory64 proposal](https://github.com/WebAssembly/memory64).
 
-The new **Memory64 Core** prototype separates these responsibilities:
+In Wexel, `packages/wexel-core/memory64/` contains an **experimental core target** that separates linear-memory allocation from virtual-filesystem behavior:
 
-- **Memory Manager:** owns WebAssembly linear-memory allocation, growth, and the configured maximum.
-- **VFS:** requests memory from the manager for file contents and path metadata; it does not grow WebAssembly memory directly.
-- **Hierarchical directories:** supports explicit directory creation, immediate-child listing, file read/write/removal, and removal of empty directories. Paths must be absolute and normalized.
+- **Memory manager:** controls allocation, memory growth, and the configured maximum.
+- **Virtual filesystem (VFS):** requests memory from that manager for file contents and path metadata; it does not grow WebAssembly memory directly.
+- **Directory and file operations:** supports normalized absolute paths, directory creation, immediate-child listing, file reads/writes/removal, and removal of empty directories. This is a Linux-like hierarchy, not full POSIX filesystem compatibility.
 
-The Memory64 build has a configured maximum of **16 GiB of linear memory** and starts with a smaller allocation. It grows as needed; the 16 GiB is not pre-filled or reserved at startup. Actual growth depends on Memory64 support in the runtime and available host resources. A logical VFS quota limits live file contents, while metadata and allocator overhead also consume linear memory.
+The experimental target has a configured maximum of **16 GiB of linear memory** and starts at **16 MiB**. The maximum is not reserved at startup. Real growth depends on Memory64 support in the host runtime and available resources. A logical VFS quota limits live file contents, while metadata and allocator overhead also consume linear memory.
 
-**Integration status:** the Memory64 implementation and its executable test live in `packages/wexel-core/memory64/` as an experimental core target. The existing `src/core.wat` WASM32 artifact remains the default package core until the Memory64 target is integrated into the normal package build and runtime adapters. Do not treat the experimental 16 GiB maximum as a guarantee that 16 GiB of file payload can be stored. The current arena allocator does not reclaim physical linear-memory space after overwrites or removals.
+**Integration status:** this target has its own build and test under `packages/wexel-core/memory64/`. The normal package still uses the existing WASM32 core until a Memory64-capable runtime path and host ABI integration are completed. The current arena allocator does not reclaim physical linear-memory space after overwrites or removals, so the 16 GiB maximum is not a promise that 16 GiB of file payload can be stored.
 
 ## NodeExecution
 
