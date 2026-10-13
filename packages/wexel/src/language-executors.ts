@@ -60,14 +60,14 @@ export class WexelLanguageExecutor {
   async runFile(path: string, args: string[] = []): Promise<ExecResult> {
     const extension = this.language === "go" ? ".go" : ".zig";
     if (!path.toLowerCase().endsWith(extension)) {
-      return { stdout: "", stderr: `Executor ${this.language} aceita apenas arquivos ${extension}.\\n`, exitCode: 2 };
+      return { stdout: "", stderr: `Executor ${this.language} aceita apenas arquivos ${extension}.\n`, exitCode: 2 };
     }
 
     let source: string;
     try {
       source = this.fs.readText(path);
     } catch (error) {
-      return { stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\\n`, exitCode: 1 };
+      return { stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n`, exitCode: 1 };
     }
 
     const exports = this.instance.exports as ExecutorExports;
@@ -81,13 +81,13 @@ export class WexelLanguageExecutor {
     const pathPtr = alloc(pathBytes.length);
     const argsPtr = alloc(argsBytes.length);
     if (sourcePtr < 0 || pathPtr < 0 || argsPtr < 0) {
-      return { stdout: "", stderr: "Executor não conseguiu alocar memória para o código-fonte.\\n", exitCode: 1 };
+      return { stdout: "", stderr: "Executor não conseguiu alocar memória para o código-fonte.\n", exitCode: 1 };
     }
 
     const view = new Uint8Array(memory.buffer);
     const inBounds = (ptr: number, length: number) => ptr >= 0 && length >= 0 && ptr + length <= view.length;
     if (!inBounds(sourcePtr, sourceBytes.length) || !inBounds(pathPtr, pathBytes.length) || !inBounds(argsPtr, argsBytes.length)) {
-      return { stdout: "", stderr: "Executor retornou ponteiros de entrada fora da memória linear.\\n", exitCode: 1 };
+      return { stdout: "", stderr: "Executor retornou ponteiros de entrada fora da memória linear.\n", exitCode: 1 };
     }
     view.set(sourceBytes, sourcePtr);
     view.set(pathBytes, pathPtr);
@@ -108,7 +108,7 @@ export class WexelLanguageExecutor {
     } catch (error) {
       return {
         stdout: "",
-        stderr: `Falha no executor ${this.language}: ${error instanceof Error ? error.message : String(error)}\\n`,
+        stderr: `Falha no executor ${this.language}: ${error instanceof Error ? error.message : String(error)}\n`,
         exitCode: 1,
       };
     }
