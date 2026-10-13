@@ -13,7 +13,7 @@ type ExecutorExports = WebAssembly.Exports & {
   memory?: WebAssembly.Memory;
   wexel_executor_abi_version?: () => number;
   wexel_executor_alloc?: (length: number) => number;
-  wexel_executor_run?: (sourcePtr: number, sourceLength: number, filePathPtr: number, filePathLength: number, argsPtr: number, argsLength: number) => number;
+  wexel_executor_run?: (sourcePtr: number, sourceLength: number, filePathPtr: number, filePathLength: number, argsPtr: number, argsLength: number) => void;
   wexel_executor_stdout_ptr?: () => number;
   wexel_executor_stdout_len?: () => number;
   wexel_executor_stderr_ptr?: () => number;
@@ -85,6 +85,10 @@ export class WexelLanguageExecutor {
     }
 
     const view = new Uint8Array(memory.buffer);
+    const inBounds = (ptr: number, length: number) => ptr >= 0 && length >= 0 && ptr + length <= view.length;
+    if (!inBounds(sourcePtr, sourceBytes.length) || !inBounds(pathPtr, pathBytes.length) || !inBounds(argsPtr, argsBytes.length)) {
+      return { stdout: "", stderr: "Executor retornou ponteiros de entrada fora da memória linear.\\n", exitCode: 1 };
+    }
     view.set(sourceBytes, sourcePtr);
     view.set(pathBytes, pathPtr);
     view.set(argsBytes, argsPtr);
