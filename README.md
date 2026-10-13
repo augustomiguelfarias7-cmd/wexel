@@ -95,7 +95,7 @@ Wexel Runtime
 See `packages/wexel/assets/README-4.0.md` for details on the new 4.0 artifacts
 (the compiled kernel, Wexel.js, and their integration points).
 
-Go/Zig WebAssembly build and execution steps are documented in `docs/go-zig-wasm.md`. These targets currently build artifacts at compile time; the complete Go/Zig compilers are not embedded in the Wexel runtime.
+Go/Zig WebAssembly build and execution steps are documented in `docs/go-zig-wasm.md`. Use `scripts/run-source-wasm.sh go file.go` or `scripts/run-source-wasm.sh zig file.zig` to compile a source file to a temporary WASM artifact and execute it with the matching runtime. The full compiler toolchains are build-time dependencies, not embedded in the Wexel runtime.
 
 For backend applications, `NodeExecution` adds another layer:
 
