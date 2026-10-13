@@ -1,0 +1,53 @@
+name: Go and Zig WebAssembly artifacts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/languages/**"
+      - "scripts/build-go-zig-wasm.sh"
+      - "scripts/run-go-wasm.mjs"
+      - "scripts/run-wasi-wasm.mjs"
+      - ".github/workflows/go-zig-wasm-artifacts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.2"
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.14.1"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build separate Go and Zig WebAssembly artifacts
+        run: ./scripts/build-go-zig-wasm.sh
+
+      - name: Execute Go WebAssembly artifact
+        run: node scripts/run-go-wasm.mjs dist/languages/go/hello.wasm
+
+      - name: Execute Zig WASI artifact
+        run: node scripts/run-wasi-wasm.mjs dist/languages/zig/hello.wasm
+
+      - name: Upload language artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wexel-go-zig-wasm
+          path: |
+            dist/languages/go/hello.wasm
+            dist/languages/go/wasm_exec.js
+            dist/languages/zig/hello.wasm
+          if-no-files-found: error
+          retention-days: 30
