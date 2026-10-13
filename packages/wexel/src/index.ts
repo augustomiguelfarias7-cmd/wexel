@@ -321,12 +321,12 @@ export class WexelRuntime {
 
   private async runLanguageCommand(language: CompiledLanguage, args: string[]): Promise<ExecResult> {
     if (args[0] !== "run" || !args[1]) {
-      return { stdout: "", stderr: `Uso: ${language} run <arquivo.${language}> [argumentos...]\\n`, exitCode: 2 };
+      return { stdout: "", stderr: `Uso: ${language} run <arquivo.${language}> [argumentos...]\n`, exitCode: 2 };
     }
     const file = args[1];
     const executor = this.languageExecutors.get(language);
     if (!executor) {
-      return { stdout: "", stderr: `Executor ${language} não registrado. Configure ${language === "go" ? "goExecutorBytes" : "zigExecutorBytes"} com um artefato Wexel Language Executor ABI v1.\\n`, exitCode: 1 };
+      return { stdout: "", stderr: `Executor ${language} não registrado. Configure ${language === "go" ? "goExecutorBytes" : "zigExecutorBytes"} com um artefato Wexel Language Executor ABI v1.\n`, exitCode: 1 };
     }
     return executor.runFile(file, args.slice(2));
   }
@@ -336,7 +336,7 @@ export class WexelRuntime {
     if (command === "list") {
       const extensions = language === "c" ? [".c"] : [".cpp", ".cc", ".cxx"];
       const files = this.fs.snapshot().map((entry) => entry.path).filter((path) => extensions.some((ext) => path.toLowerCase().endsWith(ext)));
-      return { stdout: files.join("\\n") + (files.length ? "\\n" : ""), stderr: "", exitCode: 0 };
+      return { stdout: files.join("\n") + (files.length ? "\n" : ""), stderr: "", exitCode: 0 };
     }
     if (command !== "run" || !args[1]) return { stdout: "", stderr: `Uso: ${language} list | ${language} run <arquivo>
 `, exitCode: 2 };
@@ -361,9 +361,9 @@ export class WexelRuntime {
   }
 
   async multic(args: string[]): Promise<ExecResult> {
-    if (args[0] !== "run" || !args[1]) return { stdout: "", stderr: "Uso: multic run <arquivo.cpp>\\n", exitCode: 2 };
+    if (args[0] !== "run" || !args[1]) return { stdout: "", stderr: "Uso: multic run <arquivo.cpp>\n", exitCode: 2 };
     const file = args[1];
-    if (!/\\.(cpp|cc|cxx)$/i.test(file)) return { stdout: "", stderr: "MultiC usa um arquivo-contêiner .cpp/.cc/.cxx.\\n", exitCode: 2 };
+    if (!/\\.(cpp|cc|cxx)$/i.test(file)) return { stdout: "", stderr: "MultiC usa um arquivo-contêiner .cpp/.cc/.cxx.\n", exitCode: 2 };
     return runMultiCVfs(this.fs, file);
   }
 
