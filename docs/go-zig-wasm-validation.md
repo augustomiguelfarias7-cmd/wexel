@@ -73,3 +73,24 @@ A second public project, `Aryan-Bagale/go-browser-interpreter`, commits a `main.
 The configured 16 GiB belongs to the experimental Exa/Memory64 core's linear memory, used by its allocator and VFS for file contents and metadata. It is not where the Go interpreter or Zig compiler artifact must be stored. Language artifacts should be retained/loaded separately by the host runtime and instantiated as their own WebAssembly modules. When code runs, the VFS source can be passed as input to the relevant module; a copy into that module's own memory is not the same as storing the artifact in Exa memory.
 
 The new architecture note is `docs/go-zig-artifact-memory.md`. This does not change the Memory64 integration status: the experimental Memory64 target is not yet the default package core.
+
+
+## Deep retry record (2026-10-13, follow-up)
+
+### Go / Yaegi
+
+- Repeated direct downloads of `github.com/traefik/yaegi@v0.16.1` from `proxy.golang.org`, `goproxy.io`, `proxy.golang.com.cn`, `mirrors.aliyun.com/goproxy`, and `goproxy.cn` all failed with DNS resolution errors in the build environment.
+- Retried the GitHub source archive URL; DNS resolution failed there too.
+- An offline `GOOS=js GOARCH=wasm go build` attempt fails because the Yaegi module is not present in the local module cache and there are no `go.sum` entries.
+- Found a public repository, `Aryan-Bagale/go-browser-interpreter`, that commits a 39,813,704-byte `main.wasm` using Yaegi. However, binary retrieval through the available GitHub connector failed because its binary blob cannot be decoded as UTF-8. It uses the browser-specific Go WASM host glue and does not implement Wexel Language Executor ABI v1. It has not been checksum-verified, executed, or approved for bundling.
+- Successfully reran the existing small, precompiled Go sample with Node.js. Output: `Hello from Go compiled to WebAssembly inside Wexel` and `2 + 40 = 42`. This proves only that the existing precompiled sample runs; it does not prove arbitrary Go source interpretation.
+
+### Zig compiler
+
+- Confirmed the local environment has no `zig` executable and no Zig compiler WASM artifact in the local artifact kit.
+- Public leads such as `zigc-wasm` describe a Zig compiler compiled to WebAssembly, but the GitHub endpoint redirects and the available transfer/build environment could not retrieve a usable compiler artifact.
+- No Zig source was compiled in this retry. No Zig artifact is being published as if it were validated.
+
+### Publication decision
+
+No new executable language artifact is published in this retry, because neither the Yaegi binary nor the Zig compiler artifact could be downloaded, verified, and tested end-to-end. This avoids committing an unverified third-party binary or falsely marking the feature as complete. No GitHub Actions workflow was added. The Exa Memory64 artifact-storage boundary remains documented separately in `docs/go-zig-artifact-memory.md`.
