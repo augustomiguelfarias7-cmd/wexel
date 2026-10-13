@@ -21,7 +21,7 @@ if ! command -v "$ZIG_BIN" >/dev/null 2>&1; then
 fi
 
 GOROOT="$("$GO_BIN" env GOROOT)"
-GOOS=js GOARCH=wasm "$GO_BIN" build -trimpath -o "$GO_OUT/hello.wasm" ./examples/languages/go
+GOOS=js GOARCH=wasm "$GO_BIN" build -trimpath -o "$GO_OUT/hello.wasm" ./examples/languages/go/main.go
 cp "$GOROOT/misc/wasm/wasm_exec.js" "$GO_OUT/wasm_exec.js"
 
 "$ZIG_BIN" build-exe examples/languages/zig/main.zig \
