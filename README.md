@@ -20,7 +20,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - **New in 4.0:** real Linux kernel compiled to WebAssembly (NOMMU), running a genuine BusyBox shell inside `NodeExecution` via `worker_threads`
 - **New in 4.0:** shell now runs on the real BusyBox inside that kernel instead of a 40-command reimplementation
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
-- **New in 4.0:** Go and Zig toolchain support (compile to `wasm32`/`wasm32-wasi` and run inside Wexel)
+- **Go and Zig WebAssembly examples:** separate Go `js/wasm` and Zig `wasm32-wasi` artifacts, with build/run scripts and CI verification. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
@@ -94,6 +94,8 @@ Wexel Runtime
 
 See `packages/wexel/assets/README-4.0.md` for details on the new 4.0 artifacts
 (the compiled kernel, Wexel.js, and their integration points).
+
+Go/Zig WebAssembly build and execution steps are documented in `docs/go-zig-wasm.md`. These targets currently build artifacts at compile time; the complete Go/Zig compilers are not embedded in the Wexel runtime.
 
 For backend applications, `NodeExecution` adds another layer:
 
