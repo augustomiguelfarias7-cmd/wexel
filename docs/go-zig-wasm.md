@@ -26,6 +26,22 @@ Outputs:
 - `dist/languages/go/wasm_exec.js`: the official Go JavaScript runtime copied from the installed Go distribution.
 - `dist/languages/zig/hello.wasm`: Zig compiled for `wasm32-wasi`.
 
+## Compile a Zig file into WebAssembly
+
+With Zig installed, compile a source file without running it:
+
+```sh
+./scripts/compile-zig-wasm.sh ./examples/languages/zig/main.zig ./dist/languages/zig/main.wasm
+```
+
+The helper targets `wasm32-wasi` and defaults to `ReleaseSmall`. Optional modes are `debug`, `release-small`, `release-fast`, and `release-safe`. Set `ZIG_BIN` if the compiler executable is not named `zig`.
+
+Run the resulting WASI Preview 1 artifact with the NodeExecution smoke-test host:
+
+```sh
+node scripts/run-wasi-wasm.mjs ./dist/languages/zig/main.wasm
+```
+
 ## Compile and run a source file in one command
 
 With the corresponding compiler installed on the build host:
@@ -46,7 +62,7 @@ node scripts/run-wasi-wasm.mjs dist/languages/zig/hello.wasm
 
 The Go artifact uses Go's official `wasm_exec.js` runtime. The Zig artifact uses Node.js's WASI Preview 1 host. The two artifacts are separate because their ABI and runtime requirements differ.
 
-The GitHub Actions workflow `.github/workflows/go-zig-wasm-artifacts.yml` builds and executes both artifacts, then uploads them as the `wexel-go-zig-wasm` workflow artifact.
+No GitHub Actions Workflow is required for this process. Build and run the artifacts directly on a machine with the toolchains installed.
 
 ## Using the Wexel VFS for source files
 
