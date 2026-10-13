@@ -26,6 +26,17 @@ Outputs:
 - `dist/languages/go/wasm_exec.js`: the official Go JavaScript runtime copied from the installed Go distribution.
 - `dist/languages/zig/hello.wasm`: Zig compiled for `wasm32-wasi`.
 
+## Compile and run a source file in one command
+
+With the corresponding compiler installed on the build host:
+
+```sh
+./scripts/run-source-wasm.sh go ./examples/languages/go/main.go
+./scripts/run-source-wasm.sh zig ./examples/languages/zig/main.zig
+```
+
+The helper compiles a source file into a temporary WebAssembly artifact, executes it with the matching runtime, and removes the temporary output afterward. Go and Zig toolchains are required only for the compile step.
+
 ## Execute the artifacts
 
 ```sh
