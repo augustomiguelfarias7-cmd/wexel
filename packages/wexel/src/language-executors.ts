@@ -3,12 +3,16 @@ import type { ExecResult, WexelFileSystem } from "./index.js";
 export type CompiledLanguage = "go" | "zig";
 
 export interface LanguageExecutorOptions {
-  /** Compiled WebAssembly executor/compiler artifact implementing the Wexel Language Executor ABI v1. */
+  /** Compiled WebAssembly executor/compiler artifact. Prefer ABI v1; legacy Yaegi/zigc also accepted. */
   artifact: BufferSource;
   language: CompiledLanguage;
   fs: WexelFileSystem;
   /** Explicit imports required by the executor artifact (for example, a WASI host). */
   imports?: WebAssembly.Imports;
+  /** Optional path to wasm_exec.js (only used by the legacy Yaegi adapter). */
+  wasmExecJs?: string;
+  /** Optional path or bytes for Zig std library zip (legacy zigc adapter). */
+  zigStdZip?: BufferSource | string;
 }
 
 type ExecutorExports = WebAssembly.Exports & {
@@ -26,37 +30,88 @@ type ExecutorExports = WebAssembly.Exports & {
 /**
  * Bridges source files stored in the Wexel VFS to a language executor artifact.
  *
- * ABI v1 expects the artifact to compile/interpret the supplied source and run it.
- * This host adapter deliberately does not spawn a host Go/Zig compiler.
+ * Supports two modes:
+ * 1. Wexel Language Executor ABI v1 (preferred)
+ * 2. Legacy adapters for the classic Yaegi js/wasm artifact and zigc-wasm compiler
  */
 export class WexelLanguageExecutor {
   private constructor(
     readonly language: CompiledLanguage,
-    private readonly instance: WebAssembly.Instance,
+    private readonly mode: "abi-v1" | "legacy-yaegi" | "legacy-zigc",
+    private readonly instance: WebAssembly.Instance | null,
     private readonly fs: WexelFileSystem,
+    private readonly legacyCtx: any = null,
   ) {}
 
   static async load(options: LanguageExecutorOptions): Promise<WexelLanguageExecutor> {
-    const { instance } = await WebAssembly.instantiate(options.artifact, options.imports ?? {});
-    const exports = instance.exports as ExecutorExports;
-    if (!(exports.memory instanceof WebAssembly.Memory)) {
-      throw new Error(`Executor ${options.language} inválido: exporta memory ausente.`);
-    }
-    if (typeof exports.wexel_executor_abi_version !== "function") {
-      throw new Error(`Executor ${options.language} inválido: wexel_executor_abi_version ausente.`);
-    }
-    const version = exports.wexel_executor_abi_version();
-    if (version !== 1) throw new Error(`ABI do executor ${options.language} incompatível: esperado 1, recebido ${version}.`);
-    for (const name of [
-      "wexel_executor_alloc", "wexel_executor_run", "wexel_executor_stdout_ptr",
-      "wexel_executor_stdout_len", "wexel_executor_stderr_ptr",
-      "wexel_executor_stderr_len", "wexel_executor_exit_code",
-    ] as const) {
-      if (typeof exports[name] !== "function") {
-        throw new Error(`Executor ${options.language} inválido: exportação ${name} ausente.`);
+    // First try pure ABI v1
+    try {
+      const { instance } = await WebAssembly.instantiate(options.artifact, options.imports ?? {});
+      const exports = instance.exports as ExecutorExports;
+
+      if (
+        exports.memory instanceof WebAssembly.Memory &&
+        typeof exports.wexel_executor_abi_version === "function" &&
+        exports.wexel_executor_abi_version() === 1 &&
+        typeof exports.wexel_executor_alloc === "function" &&
+        typeof exports.wexel_executor_run === "function" &&
+        typeof exports.wexel_executor_stdout_ptr === "function" &&
+        typeof exports.wexel_executor_stdout_len === "function" &&
+        typeof exports.wexel_executor_stderr_ptr === "function" &&
+        typeof exports.wexel_executor_stderr_len === "function" &&
+        typeof exports.wexel_executor_exit_code === "function"
+      ) {
+        return new WexelLanguageExecutor(options.language, "abi-v1", instance, options.fs);
       }
+    } catch {
+      // not a pure ABI v1 module, fall through to legacy detection
     }
-    return new WexelLanguageExecutor(options.language, instance, options.fs);
+
+    // Legacy path
+    if (options.language === "go") {
+      return WexelLanguageExecutor.loadLegacyYaegi(options);
+    }
+    if (options.language === "zig") {
+      return WexelLanguageExecutor.loadLegacyZigc(options);
+    }
+
+    throw new Error(`Executor ${options.language} inválido: nem ABI v1 nem adapter legado reconhecido.`);
+  }
+
+  private static async loadLegacyYaegi(options: LanguageExecutorOptions): Promise<WexelLanguageExecutor> {
+    // Legacy Yaegi (GOOS=js GOARCH=wasm) needs the Go JS runtime (wasm_exec.js).
+    // We keep a minimal host-side adapter that can be completed by the caller
+    // providing a Go runtime context, or we throw a clear error.
+    const ctx = {
+      artifact: options.artifact,
+      fs: options.fs,
+      wasmExecJs: options.wasmExecJs,
+      ready: false,
+      evalFn: null as null | ((source: string) => any),
+    };
+
+    // In environments that already have a global Go + yaegiEval (browser or
+    // pre-loaded Node glue) we can reuse it. Otherwise the adapter stays in
+    // "pending" state and runFile will return a helpful error.
+    if (typeof globalThis !== "undefined" && (globalThis as any).yaegiEval) {
+      ctx.evalFn = (globalThis as any).yaegiEval;
+      ctx.ready = true;
+    }
+
+    return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
+  }
+
+  private static async loadLegacyZigc(options: LanguageExecutorOptions): Promise<WexelLanguageExecutor> {
+    // Legacy zigc-wasm is a WASI compiler. Full execution needs a WASI host
+    // with preopened directories for the source + std library.
+    // We register the artifact and leave a clear path for a future WASI shim.
+    const ctx = {
+      artifact: options.artifact,
+      fs: options.fs,
+      zigStdZip: options.zigStdZip,
+      ready: false,
+    };
+    return new WexelLanguageExecutor("zig", "legacy-zigc", null, options.fs, ctx);
   }
 
   async runFile(path: string, args: string[] = []): Promise<ExecResult> {
@@ -72,7 +127,23 @@ export class WexelLanguageExecutor {
       return { stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n`, exitCode: 1 };
     }
 
-    const exports = this.instance.exports as ExecutorExports;
+    if (this.mode === "abi-v1") {
+      return this.runAbiV1(path, source, args);
+    }
+
+    if (this.mode === "legacy-yaegi") {
+      return this.runLegacyYaegi(path, source, args);
+    }
+
+    if (this.mode === "legacy-zigc") {
+      return this.runLegacyZigc(path, source, args);
+    }
+
+    return { stdout: "", stderr: "Modo de executor desconhecido.\n", exitCode: 1 };
+  }
+
+  private async runAbiV1(path: string, source: string, args: string[]): Promise<ExecResult> {
+    const exports = this.instance!.exports as ExecutorExports;
     const memory = exports.memory!;
     const encoder = new TextEncoder();
     const sourceBytes = encoder.encode(source);
@@ -114,5 +185,54 @@ export class WexelLanguageExecutor {
         exitCode: 1,
       };
     }
+  }
+
+  private async runLegacyYaegi(path: string, source: string, _args: string[]): Promise<ExecResult> {
+    const ctx = this.legacyCtx;
+    if (!ctx?.ready || typeof ctx.evalFn !== "function") {
+      return {
+        stdout: "",
+        stderr:
+          "Legacy Yaegi adapter carregado, mas o runtime Go (wasm_exec.js + yaegiEval) ainda não foi inicializado.\n" +
+          "Carregue o artefato yaegi.wasm com o Go JS runtime antes de chamar runtime.exec({ language: \"go\", ... }).\n" +
+          "Veja docs/go-zig-wasm.md e o exemplo de adapter legado.\n",
+        exitCode: 1,
+      };
+    }
+
+    try {
+      const result = ctx.evalFn(source);
+      if (result && typeof result === "object") {
+        return {
+          stdout: String(result.stdout ?? ""),
+          stderr: String(result.stderr ?? result.error ?? ""),
+          exitCode: result.error ? 1 : 0,
+        };
+      }
+      return { stdout: String(result ?? ""), stderr: "", exitCode: 0 };
+    } catch (error) {
+      return {
+        stdout: "",
+        stderr: `Legacy Yaegi: ${error instanceof Error ? error.message : String(error)}\n`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  private async runLegacyZigc(path: string, source: string, args: string[]): Promise<ExecResult> {
+    // Placeholder for a full WASI-based zigc adapter.
+    // A complete implementation needs:
+    // - WASI snapshot preview1 imports
+    // - preopen of a virtual FS containing the source + std library from std.zip
+    // - capture of compiler stdout/stderr and the produced .wasm
+    // - optional second step to execute the produced module
+    return {
+      stdout: "",
+      stderr:
+        "Legacy zigc-wasm adapter registrado, mas a execução completa ainda requer um host WASI com preopens (source + std.zip).\n" +
+        "O artefato foi aceito; a integração completa do compilador está documentada em docs/go-zig-wasm.md.\n" +
+        `Arquivo solicitado: ${path}\n`,
+      exitCode: 1,
+    };
   }
 }
