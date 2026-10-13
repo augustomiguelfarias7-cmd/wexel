@@ -6,7 +6,7 @@ Wexel's experimental Memory64 core owns its own linear memory. Memory64 is WebAs
 
 Keep these resources separate:
 
-- **Memory64 Memory64 core:** stores VFS file contents and filesystem metadata through its allocator, subject to the actual runtime's Memory64 support and host resource limits.
+- **Memory64 core:** stores VFS file contents and filesystem metadata through its allocator, subject to the actual runtime's Memory64 support and host resource limits.
 - **Go interpreter artifact:** a separately loaded WebAssembly module, responsible for interpreting Go source. The selected first candidate is Yaegi.
 - **Zig compiler artifact:** a separately loaded WebAssembly module, responsible for compiling Zig source. Zig is a compiler integration, not a source interpreter.
 - **Host adapter:** connects the VFS to the appropriate artifact and returns stdout, stderr, and the exit status.
