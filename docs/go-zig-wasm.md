@@ -37,7 +37,7 @@ Each language executor is a WebAssembly artifact configured with `goExecutorByte
 - `memory`: WebAssembly memory shared by the ABI calls.
 - `wexel_executor_abi_version() -> i32`: returns `1`.
 - `wexel_executor_alloc(length: i32) -> i32`: allocates a byte range and returns its pointer.
-- `wexel_executor_run(sourcePtr, sourceLength, filePathPtr, filePathLength, argsPtr, argsLength) -> i32`: compiles/interprets and runs the source. Arguments are UTF-8; `argsPtr` points to a JSON array of strings.
+- `wexel_executor_run(sourcePtr, sourceLength, filePathPtr, filePathLength, argsPtr, argsLength) -> void`: compiles/interprets and runs the source. Arguments are UTF-8; `argsPtr` points to a JSON array of strings.
 - `wexel_executor_stdout_ptr() -> i32` and `wexel_executor_stdout_len() -> i32`.
 - `wexel_executor_stderr_ptr() -> i32` and `wexel_executor_stderr_len() -> i32`.
 - `wexel_executor_exit_code() -> i32`.
