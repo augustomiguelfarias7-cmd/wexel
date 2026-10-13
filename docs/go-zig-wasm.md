@@ -1,76 +1,51 @@
-# Go and Zig WebAssembly execution
+# Go and Zig source execution inside Wexel
 
-Wexel keeps the Go and Zig examples as separate WebAssembly artifacts. The source code is compiled to WASM first, and Wexel's execution path runs the resulting artifact. End users do not need to clone the Go or Zig source repositories.
+Go and Zig are routed through Wexel's language-executor ABI, rather than being exposed as unrelated host-side compile scripts.
 
-## Build-time requirements
+## Runtime API
 
-The compiler is required only when compiling source code:
+Create the source file in the Wexel VFS, then execute that file through its language executor:
 
-- Go 1.23.x for the Go `js/wasm` target.
-- Zig 0.14.1 for the Zig `wasm32-wasi` target.
-- Node.js 22 to run the smoke-test artifacts in this repository.
+```ts
+import { Wexel } from "wexel";
 
-These are compiler toolchains, not the upstream Go or Zig source repositories. The resulting artifacts are independent `.wasm` files.
+const runtime = await Wexel.create({
+  goExecutorBytes,  // Go executor/compiler artifact, ABI v1
+  zigExecutorBytes, // Zig executor/compiler artifact, ABI v1
+});
 
-## Build both artifacts
+runtime.fs.write("/home/main.go", `package main
+import "fmt"
+func main() { fmt.Println("Hello from Go inside Wexel") }`);
 
-From the repository root:
+runtime.fs.write("/home/main.zig", `const std = @import("std");
+pub fn main() void { std.debug.print("Hello from Zig inside Wexel\\n", .{}); }`);
 
-```sh
-./scripts/build-go-zig-wasm.sh
+const goResult = await runtime.exec({ language: "go", file: "/home/main.go" });
+const zigResult = await runtime.exec({ language: "zig", file: "/home/main.zig" });
+
+console.log(goResult.stdout, goResult.stderr, goResult.exitCode);
+console.log(zigResult.stdout, zigResult.stderr, zigResult.exitCode);
 ```
 
-Outputs:
+The source is read from the runtime VFS. The selected executor receives the source bytes, virtual path, and JSON-encoded arguments, and returns standard output, standard error, and an exit code. The API does not copy source files to the host filesystem or spawn a host compiler.
 
-- `dist/languages/go/hello.wasm`: Go compiled for `GOOS=js GOARCH=wasm`.
-- `dist/languages/go/wasm_exec.js`: the official Go JavaScript runtime copied from the installed Go distribution.
-- `dist/languages/zig/hello.wasm`: Zig compiled for `wasm32-wasi`.
+## Wexel Language Executor ABI v1
 
-## Compile a Zig file into WebAssembly
+Each language executor is a WebAssembly artifact configured with `goExecutorBytes` or `zigExecutorBytes`. It must export:
 
-With Zig installed, compile a source file without running it:
+- `memory`: WebAssembly memory shared by the ABI calls.
+- `wexel_executor_abi_version() -> i32`: returns `1`.
+- `wexel_executor_alloc(length: i32) -> i32`: allocates a byte range and returns its pointer.
+- `wexel_executor_run(sourcePtr, sourceLength, filePathPtr, filePathLength, argsPtr, argsLength) -> i32`: compiles/interprets and runs the source. Arguments are UTF-8; `argsPtr` points to a JSON array of strings.
+- `wexel_executor_stdout_ptr() -> i32` and `wexel_executor_stdout_len() -> i32`.
+- `wexel_executor_stderr_ptr() -> i32` and `wexel_executor_stderr_len() -> i32`.
+- `wexel_executor_exit_code() -> i32`.
 
-```sh
-./scripts/compile-zig-wasm.sh ./examples/languages/zig/main.zig ./dist/languages/zig/main.wasm
-```
+The stdout/stderr pointers refer to UTF-8 output buffers in the exported memory. The executor must preserve those buffers until the host has read them after `wexel_executor_run` returns.
 
-The helper targets `wasm32-wasi` and defaults to `ReleaseSmall`. Optional modes are `debug`, `release-small`, `release-fast`, and `release-safe`. Set `ZIG_BIN` if the compiler executable is not named `zig`.
+## Important implementation boundary
 
-Run the resulting WASI Preview 1 artifact with the NodeExecution smoke-test host:
+The host-side ABI bridge and VFS routing are implemented in `packages/wexel/src/language-executors.ts`. However, a real Go or Zig executor/compiler artifact implementing this ABI must be supplied through the options above. The ordinary Go `js/wasm` program artifact, Go's `wasm_exec.js`, and a normal Zig WASI program are **not** themselves ABI-v1 source compilers. They cannot accept arbitrary `.go` or `.zig` source files as input.
 
-```sh
-node scripts/run-wasi-wasm.mjs ./dist/languages/zig/main.wasm
-```
-
-## Compile and run a source file in one command
-
-With the corresponding compiler installed on the build host:
-
-```sh
-./scripts/run-source-wasm.sh go ./examples/languages/go/main.go
-./scripts/run-source-wasm.sh zig ./examples/languages/zig/main.zig
-```
-
-The helper compiles a source file into a temporary WebAssembly artifact, executes it with the matching runtime, and removes the temporary output afterward. Go and Zig toolchains are required only for the compile step.
-
-## Execute the artifacts
-
-```sh
-node scripts/run-go-wasm.mjs dist/languages/go/hello.wasm
-node scripts/run-wasi-wasm.mjs dist/languages/zig/hello.wasm
-```
-
-The Go artifact uses Go's official `wasm_exec.js` runtime. The Zig artifact uses Node.js's WASI Preview 1 host. The two artifacts are separate because their ABI and runtime requirements differ.
-
-No GitHub Actions Workflow is required for this process. Build and run the artifacts directly on a machine with the toolchains installed.
-
-## Using the Wexel VFS for source files
-
-Applications can keep source files such as `/home/user/main.go` and `/home/user/main.zig` in Wexel's VFS, including the experimental Memory64 VFS target. File creation/storage and compilation are separate concerns:
-
-1. Write source bytes to the VFS.
-2. Provide those bytes to a configured Go or Zig compiler during the build/compile stage.
-3. Produce a WASM artifact.
-4. Execute the artifact using the matching Go or WASI runtime adapter.
-
-**Important integration boundary:** the files in this change prove that Go and Zig programs can be compiled to separate WASM artifacts and those artifacts can be executed. They do not embed the complete Go or Zig compiler inside WebAssembly, and they do not yet add a `runtime.exec({ language: "go" | "zig", code })` API that compiles arbitrary source stored in the VFS automatically. That requires an explicit compiler provisioning strategy and a VFS-to-compiler bridge. The Node.js WASI runner is for NodeExecution; a browser WASI host needs its own compatible WASI implementation.
+This distinction matters: the runtime now has the organized entry point and the contract for the language executor, but full out-of-the-box source execution is not complete until the actual Go and Zig executor artifacts are built and bundled. No GitHub Actions Workflow is involved.
