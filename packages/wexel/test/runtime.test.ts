@@ -98,6 +98,12 @@ describe("Wexel runtime", () => {
     expect(html).toContain("<main>ok</main>");
     expect(html).toContain("main { color: red }");
   });
+  it("exige arquivo da VFS para Go e não faz fallback para execução de texto", async () => {
+    const rt = await runtime();
+    rt.fs.write("/home/main.go", 'package main\\nfunc main() {}');
+    await expect(rt.exec({ language: "go", file: "/home/main.go" })).rejects.toThrow("Executor go não registrado");
+    await expect(rt.exec({ language: "zig", code: "pub fn main() void {}" })).rejects.toThrow("exige um arquivo na VFS");
+  });
   it("aceita um executor CPython/WebAssembly real por adapter", async () => {
     const rt = await runtime();
     const python = await Wexel.create({ coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)), pythonRunner: async () => ({ stdout: "42\n", stderr: "", exitCode: 0 }) });
