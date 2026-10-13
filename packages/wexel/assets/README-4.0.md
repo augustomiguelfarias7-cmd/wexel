@@ -10,8 +10,8 @@
   (wasixcc + LLVM 21 + wasix-libc). `pnpm.cjs` staged junto. Licença MIT
   original da Wasmer preservada (ver LICENSE.md do pacote); modificações
   próprias sob Apache 2.0.
-- `go/wasm_exec.js`: runtime oficial do Go pra rodar `.wasm` compilado com
-  `GOOS=js GOARCH=wasm`.
+- `go/wasm_exec.js`: runtime oficial do Go para executar artefatos `.wasm` compilados com `GOOS=js GOARCH=wasm`.
+- Go/Zig source execution uses the Wexel Language Executor ABI v1 bridge documented in `docs/go-zig-wasm.md`. The runtime reads source files from its VFS and dispatches them to configured executor artifacts. Standalone Go/Zig WASM smoke-test files are examples only, not the source-execution API. No GitHub Actions Workflow is required.
 - `src/webpink_pip_adapter.py`: adaptador que liga o `pip` real (não
   reimplementado) à política de rede do WebPink, interceptando em
   `socket.create_connection`.

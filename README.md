@@ -20,7 +20,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - **New in 4.0:** real Linux kernel compiled to WebAssembly (NOMMU), running a genuine BusyBox shell inside `NodeExecution` via `worker_threads`
 - **New in 4.0:** shell now runs on the real BusyBox inside that kernel instead of a 40-command reimplementation
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
-- **New in 4.0:** Go and Zig toolchain support (compile to `wasm32`/`wasm32-wasi` and run inside Wexel)
+- **Go and Zig source execution:** the runtime exposes `runtime.exec({ language: "go" | "zig", file: "/home/main.go" })` and a versioned Wexel Language Executor ABI that reads source files from the VFS. The host-side bridge is implemented; actual Go/Zig ABI-v1 executor artifacts still need to be bundled. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
@@ -94,6 +94,8 @@ Wexel Runtime
 
 See `packages/wexel/assets/README-4.0.md` for details on the new 4.0 artifacts
 (the compiled kernel, Wexel.js, and their integration points).
+
+Go/Zig VFS-first execution and the Wexel Language Executor ABI v1 are documented in `docs/go-zig-wasm.md`. The older standalone build/run helpers are low-level smoke-test utilities, not the runtime API. Full source execution requires bundled executor artifacts implementing ABI v1; the ordinary Go and Zig program artifacts do not compile arbitrary source files.
 
 For backend applications, `NodeExecution` adds another layer:
 
@@ -206,11 +208,19 @@ await runtime.shell.exec("cd ~");
 
 The filesystem is virtual. Operations against these paths do not automatically access the host filesystem.
 
-### Storage quotas
+### Storage quotas and Memory64
 
-Wexel supports logical storage quotas for runtime filesystems.
+**Memory64** is a WebAssembly feature that allows linear memories to use 64-bit address indexes instead of the 32-bit indexes used by traditional WASM32 memories. This makes address spaces larger than 4 GiB possible in compatible engines and toolchains. It does not mean that a runtime automatically has that much physical RAM available. See the [WebAssembly Memory64 proposal](https://github.com/WebAssembly/memory64).
 
-The quota controls the amount of virtual filesystem storage available to a runtime or sandbox. It should not be interpreted as a reservation of physical RAM or disk on the host.
+In Wexel, `packages/wexel-core/memory64/` contains an **experimental core target** that separates linear-memory allocation from virtual-filesystem behavior:
+
+- **Memory manager:** controls allocation, memory growth, and the configured maximum.
+- **Virtual filesystem (VFS):** requests memory from that manager for file contents and path metadata; it does not grow WebAssembly memory directly.
+- **Directory and file operations:** supports normalized absolute paths, directory creation, immediate-child listing, file reads/writes/removal, and removal of empty directories. This is a Linux-like hierarchy, not full POSIX filesystem compatibility.
+
+The experimental target has a configured maximum of **16 GiB of linear memory** and starts at **16 MiB**. The maximum is not reserved at startup. Real growth depends on Memory64 support in the host runtime and available resources. A logical VFS quota limits live file contents, while metadata and allocator overhead also consume linear memory.
+
+**Integration status:** this target has its own build and test under `packages/wexel-core/memory64/`. The normal package still uses the existing WASM32 core until a Memory64-capable runtime path and host ABI integration are completed. The current arena allocator does not reclaim physical linear-memory space after overwrites or removals, so the 16 GiB maximum is not a promise that 16 GiB of file payload can be stored.
 
 ## NodeExecution
 

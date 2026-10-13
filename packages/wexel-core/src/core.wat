@@ -1,7 +1,8 @@
 (module
-  ;; Wexel Assembly 2.0: memória inicial pequena e limite virtual configurável.
-  ;; O filesystem possui quota de 5 GiB; a memória linear usa um limite WASM compatível de 2 GiB.
-  ;; O limite não reserva RAM na inicialização.
+  ;; Legacy WASM32 core artifact. Its linear-memory ceiling is 2 GiB (32768 pages).
+  ;; The experimental Memory64 VFS target lives in ../memory64 and configures up to 16 GiB
+  ;; of linear memory; it is not the default package artifact until integration is complete.
+  ;; Memory limits do not reserve host RAM at startup.
   (memory (export "memory") 1 32768)
   (global $heap (mut i32) (i32.const 1024))
   (global $yield_counter (mut i32) (i32.const 0))
