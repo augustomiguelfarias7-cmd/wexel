@@ -20,7 +20,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - **New in 4.0:** real Linux kernel compiled to WebAssembly (NOMMU), running a genuine BusyBox shell inside `NodeExecution` via `worker_threads`
 - **New in 4.0:** shell now runs on the real BusyBox inside that kernel instead of a 40-command reimplementation
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
-- **Go and Zig WebAssembly examples:** separate Go `js/wasm` and Zig `wasm32-wasi` artifacts, with direct build/run scripts and no Workflow dependency. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
+- **Go and Zig source execution:** the runtime exposes `runtime.exec({ language: "go" | "zig", file: "/home/main.go" })` and a versioned Wexel Language Executor ABI that reads source files from the VFS. The host-side bridge is implemented; actual Go/Zig ABI-v1 executor artifacts still need to be bundled. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
@@ -95,7 +95,7 @@ Wexel Runtime
 See `packages/wexel/assets/README-4.0.md` for details on the new 4.0 artifacts
 (the compiled kernel, Wexel.js, and their integration points).
 
-Go/Zig WebAssembly build and execution steps are documented in `docs/go-zig-wasm.md`. Use `scripts/run-source-wasm.sh go file.go` or `scripts/run-source-wasm.sh zig file.zig` to compile a source file to a temporary WASM artifact and execute it with the matching runtime. The full compiler toolchains are build-time dependencies, not embedded in the Wexel runtime.
+Go/Zig VFS-first execution and the Wexel Language Executor ABI v1 are documented in `docs/go-zig-wasm.md`. The older standalone build/run helpers are low-level smoke-test utilities, not the runtime API. Full source execution requires bundled executor artifacts implementing ABI v1; the ordinary Go and Zig program artifacts do not compile arbitrary source files.
 
 For backend applications, `NodeExecution` adds another layer:
 
