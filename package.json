@@ -14,7 +14,8 @@
     "clean": "rm -rf packages/*/dist",
     "build:busybox": "bash scripts/build-busybox.sh",
     "bootstrap:emscripten": "bash scripts/bootstrap-emscripten.sh",
-    "prepare:deno-native": "node scripts/prepare-deno-native.mjs"
+    "prepare:deno-native": "node scripts/prepare-deno-native.mjs",
+    "compile:zig:wasm": "bash scripts/compile-zig-wasm.sh"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
