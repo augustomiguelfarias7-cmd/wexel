@@ -20,7 +20,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - **New in 4.0:** real Linux kernel compiled to WebAssembly (NOMMU), running a genuine BusyBox shell inside `NodeExecution` via `worker_threads`
 - **New in 4.0:** shell now runs on the real BusyBox inside that kernel instead of a 40-command reimplementation
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
-- **Go and Zig WebAssembly examples:** separate Go `js/wasm` and Zig `wasm32-wasi` artifacts, with build/run scripts and CI verification. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
+- **Go and Zig WebAssembly examples:** separate Go `js/wasm` and Zig `wasm32-wasi` artifacts, with direct build/run scripts and no Workflow dependency. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
