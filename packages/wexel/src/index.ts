@@ -57,10 +57,17 @@ export interface WexelOptions {
   /** Token para repositórios privados no git clone. */
   gitToken?: string;
   nativeCliBytes?: BufferSource;
-  /** Go executor/compiler artifact implementing Wexel Language Executor ABI v1. */
+  /** Go interpreter/executor artifact (ABI v1 or supported legacy Yaegi js/wasm). */
   goExecutorBytes?: BufferSource;
-  /** Zig executor/compiler artifact implementing Wexel Language Executor ABI v1. */
+  /** Zig executor/compiler artifact (ABI v1 or supported legacy zigc-wasm). */
   zigExecutorBytes?: BufferSource;
+  /** Official Go wasm_exec.js source, required when bootstrapping a legacy Yaegi js/wasm artifact. */
+  goWasmExecJs?: string;
+  /** Explicit imports required by language artifacts (for example, WASI imports). */
+  goExecutorImports?: WebAssembly.Imports;
+  zigExecutorImports?: WebAssembly.Imports;
+  /** Optional Zig standard-library archive for the legacy zigc-wasm compiler adapter. */
+  zigStdZip?: BufferSource | string;
   nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
   /**
    * Kernel Linux-WASM ja inicializado (retorno de linux(...) em
@@ -181,8 +188,14 @@ export class WexelRuntime {
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
     const bytes   = options.coreBytes ?? await defaultCoreBytes();
     const runtime = new WexelRuntime(await instantiateCore(bytes), options);
-    if (options.goExecutorBytes) runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({ language: "go", artifact: options.goExecutorBytes, fs: runtime.fs }));
-    if (options.zigExecutorBytes) runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({ language: "zig", artifact: options.zigExecutorBytes, fs: runtime.fs }));
+    if (options.goExecutorBytes) runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({
+      language: "go", artifact: options.goExecutorBytes, fs: runtime.fs,
+      imports: options.goExecutorImports, wasmExecJs: options.goWasmExecJs,
+    }));
+    if (options.zigExecutorBytes) runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({
+      language: "zig", artifact: options.zigExecutorBytes, fs: runtime.fs,
+      imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
+    }));
     for (const ext of options.nativeExtensions ?? []) await runtime.loadNativeExtension(ext.manifest, ext.source);
     runtime.buzz.emit("runtime:ready", { mode: runtime.mode });
     return runtime;
