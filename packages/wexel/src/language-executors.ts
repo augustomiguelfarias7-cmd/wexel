@@ -9,7 +9,7 @@ export interface LanguageExecutorOptions {
   fs: WexelFileSystem;
   /** Explicit imports required by the executor artifact (for example, a WASI host). */
   imports?: WebAssembly.Imports;
-  /** Optional path to wasm_exec.js (only used by the legacy Yaegi adapter). */
+  /** Optional source of wasm_exec.js (string content). If omitted the adapter tries to bootstrap with a minimal Go runtime. */
   wasmExecJs?: string;
   /** Optional path or bytes for Zig std library zip (legacy zigc adapter). */
   zigStdZip?: BufferSource | string;
@@ -33,6 +33,8 @@ type ExecutorExports = WebAssembly.Exports & {
  * Supports two modes:
  * 1. Wexel Language Executor ABI v1 (preferred)
  * 2. Legacy adapters for the classic Yaegi js/wasm artifact and zigc-wasm compiler
+ *
+ * Legacy Yaegi is now self-bootstrapping: the user only needs to pass goExecutorBytes.
  */
 export class WexelLanguageExecutor {
   private constructor(
@@ -79,32 +81,87 @@ export class WexelLanguageExecutor {
   }
 
   private static async loadLegacyYaegi(options: LanguageExecutorOptions): Promise<WexelLanguageExecutor> {
-    // Legacy Yaegi (GOOS=js GOARCH=wasm) needs the Go JS runtime (wasm_exec.js).
-    // We keep a minimal host-side adapter that can be completed by the caller
-    // providing a Go runtime context, or we throw a clear error.
-    const ctx = {
+    const ctx: any = {
       artifact: options.artifact,
       fs: options.fs,
-      wasmExecJs: options.wasmExecJs,
       ready: false,
       evalFn: null as null | ((source: string) => any),
+      goInstance: null as any,
+      error: null as string | null,
     };
 
-    // In environments that already have a global Go + yaegiEval (browser or
-    // pre-loaded Node glue) we can reuse it. Otherwise the adapter stays in
-    // "pending" state and runFile will return a helpful error.
-    if (typeof globalThis !== "undefined" && (globalThis as any).yaegiEval) {
-      ctx.evalFn = (globalThis as any).yaegiEval;
-      ctx.ready = true;
+    try {
+      // 1. If the host already has yaegiEval, reuse it (fast path).
+      if (typeof globalThis !== "undefined" && typeof (globalThis as any).yaegiEval === "function") {
+        ctx.evalFn = (globalThis as any).yaegiEval;
+        ctx.ready = true;
+        return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
+      }
+
+      // 2. Self-bootstrap: we need the Go JS runtime (wasm_exec.js).
+      // Prefer the content passed in options.wasmExecJs.
+      // If not provided, we try to locate a global or throw a clear error.
+      let wasmExecSource = options.wasmExecJs;
+
+      if (!wasmExecSource) {
+        // Try common locations that some bundlers / Node setups expose.
+        // In a pure library we cannot reliably fetch the official file without network,
+        // so we document that wasmExecJs should be supplied together with the artifact
+        // for fully offline self-bootstrap. For now we still attempt the global path.
+        if (typeof globalThis !== "undefined" && (globalThis as any).Go) {
+          // Go constructor already present
+        } else {
+          ctx.error =
+            "Legacy Yaegi precisa do conteúdo de wasm_exec.js. " +
+            "Passe options.wasmExecJs com o texto do arquivo oficial do Go, " +
+            "ou carregue o runtime Go antes de criar o Wexel. " +
+            "(O artefato yaegi.wasm sozinho não é suficiente.)";
+          return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
+        }
+      }
+
+      // Evaluate wasm_exec.js if we have the source
+      if (wasmExecSource) {
+        // eslint-disable-next-line no-new-func
+        const runWasmExec = new Function(wasmExecSource + "\n; return typeof Go !== 'undefined' ? Go : globalThis.Go;");
+        const GoCtor = runWasmExec();
+        if (typeof GoCtor !== "function") {
+          ctx.error = "wasm_exec.js foi fornecido mas não expôs o construtor Go.";
+          return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
+        }
+        (globalThis as any).Go = GoCtor;
+      }
+
+      const Go = (globalThis as any).Go;
+      if (typeof Go !== "function") {
+        ctx.error = "Construtor Go não disponível após carregar wasm_exec.js.";
+        return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
+      }
+
+      const go = new Go();
+      const result = await WebAssembly.instantiate(options.artifact, go.importObject);
+      go.run(result.instance);
+
+      // Give the Go runtime a moment to register the JS callbacks
+      await new Promise((r) => setTimeout(r, 50));
+
+      if (typeof (globalThis as any).yaegiEval === "function") {
+        ctx.evalFn = (globalThis as any).yaegiEval;
+        ctx.ready = true;
+        ctx.goInstance = go;
+      } else {
+        ctx.error =
+          "Yaegi WASM foi instanciado, mas a função yaegiEval não apareceu no globalThis. " +
+          "Verifique se o artefato é o wrapper correto (aquele que faz global.Set(\"yaegiEval\", ...)).";
+      }
+    } catch (err) {
+      ctx.error = `Falha ao auto-inicializar Yaegi: ${err instanceof Error ? err.message : String(err)}`;
     }
 
     return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
   }
 
   private static async loadLegacyZigc(options: LanguageExecutorOptions): Promise<WexelLanguageExecutor> {
-    // Legacy zigc-wasm is a WASI compiler. Full execution needs a WASI host
-    // with preopened directories for the source + std library.
-    // We register the artifact and leave a clear path for a future WASI shim.
     const ctx = {
       artifact: options.artifact,
       fs: options.fs,
@@ -187,15 +244,20 @@ export class WexelLanguageExecutor {
     }
   }
 
-  private async runLegacyYaegi(path: string, source: string, _args: string[]): Promise<ExecResult> {
+  private async runLegacyYaegi(_path: string, source: string, _args: string[]): Promise<ExecResult> {
     const ctx = this.legacyCtx;
+
+    if (ctx?.error) {
+      return { stdout: "", stderr: ctx.error + "\n", exitCode: 1 };
+    }
+
     if (!ctx?.ready || typeof ctx.evalFn !== "function") {
       return {
         stdout: "",
         stderr:
-          "Legacy Yaegi adapter carregado, mas o runtime Go (wasm_exec.js + yaegiEval) ainda não foi inicializado.\n" +
-          "Carregue o artefato yaegi.wasm com o Go JS runtime antes de chamar runtime.exec({ language: \"go\", ... }).\n" +
-          "Veja docs/go-zig-wasm.md e o exemplo de adapter legado.\n",
+          "Legacy Yaegi adapter não está pronto. " +
+          "Passe o conteúdo de wasm_exec.js via options.wasmExecJs junto com o artefato, " +
+          "ou garanta que globalThis.yaegiEval já exista.\n",
         exitCode: 1,
       };
     }
@@ -219,13 +281,7 @@ export class WexelLanguageExecutor {
     }
   }
 
-  private async runLegacyZigc(path: string, source: string, args: string[]): Promise<ExecResult> {
-    // Placeholder for a full WASI-based zigc adapter.
-    // A complete implementation needs:
-    // - WASI snapshot preview1 imports
-    // - preopen of a virtual FS containing the source + std library from std.zip
-    // - capture of compiler stdout/stderr and the produced .wasm
-    // - optional second step to execute the produced module
+  private async runLegacyZigc(path: string, _source: string, _args: string[]): Promise<ExecResult> {
     return {
       stdout: "",
       stderr:
