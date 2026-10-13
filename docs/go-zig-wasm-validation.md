@@ -68,9 +68,9 @@ Current blocker: external dependency/artifact downloads are unavailable in this 
 
 A second public project, `Aryan-Bagale/go-browser-interpreter`, commits a `main.wasm` binary (39,813,704 bytes) alongside its wrapper source and Go runtime glue. This is a real lead beyond a source-only recipe, but it is not a ready Wexel artifact: its documented interface is the browser-specific Go runtime plus `wasm_exec.js` and `syscall/js`, and its wrapper exposes a JavaScript `yaegi` object. It does not export Wexel Language Executor ABI v1. The repository has no GitHub Releases, and binary retrieval through this environment was not successful, so the binary has not been downloaded, inspected, checksum-verified, or run here. Do not bundle or trust it as a Wexel executor until the source, license, build provenance, and runtime adapter have been reviewed.
 
-## Exa Memory64 and artifact storage boundary
+## Memory64 and artifact storage boundary
 
-The configured 16 GiB belongs to the experimental Exa/Memory64 core's linear memory, used by its allocator and VFS for file contents and metadata. It is not where the Go interpreter or Zig compiler artifact must be stored. Language artifacts should be retained/loaded separately by the host runtime and instantiated as their own WebAssembly modules. When code runs, the VFS source can be passed as input to the relevant module; a copy into that module's own memory is not the same as storing the artifact in Exa memory.
+The configured 16 GiB belongs to the experimental Memory64 core's linear memory, used by its allocator and VFS for file contents and metadata. It is not where the Go interpreter or Zig compiler artifact must be stored. Language artifacts should be retained/loaded separately by the host runtime and instantiated as their own WebAssembly modules. When code runs, the VFS source can be passed as input to the relevant module; a copy into that module's own memory is not the same as storing the artifact in Memory64 linear memory.
 
 The new architecture note is `docs/go-zig-artifact-memory.md`. This does not change the Memory64 integration status: the experimental Memory64 target is not yet the default package core.
 
@@ -93,4 +93,4 @@ The new architecture note is `docs/go-zig-artifact-memory.md`. This does not cha
 
 ### Publication decision
 
-No new executable language artifact is published in this retry, because neither the Yaegi binary nor the Zig compiler artifact could be downloaded, verified, and tested end-to-end. This avoids committing an unverified third-party binary or falsely marking the feature as complete. No GitHub Actions workflow was added. The Exa Memory64 artifact-storage boundary remains documented separately in `docs/go-zig-artifact-memory.md`.
+No new executable language artifact is published in this retry, because neither the Yaegi binary nor the Zig compiler artifact could be downloaded, verified, and tested end-to-end. This avoids committing an unverified third-party binary or falsely marking the feature as complete. No GitHub Actions workflow was added. The Memory64 artifact-storage boundary remains documented separately in `docs/go-zig-artifact-memory.md`.
