@@ -15,17 +15,23 @@ Hello from Go compiled to WebAssembly inside Wexel
 
 This verifies that the sample Go program WASM module can run under the Go JavaScript/WASM host. It does **not** verify arbitrary Go source execution inside Wexel: the WASM file already contains the compiled program, and the runner requires the Go host runtime.
 
-### Go: Yaegi interpreter WASM — BLOCKED
+### Go: Yaegi interpreter WASM — BLOCKED after retries
 
-The public `yaegi-wasm` repository provides wrapper source, not a prebuilt `yaegi.wasm` release asset. Its wrapper exposes `window.yaegi.eval(source)` through Go's `syscall/js`; it does not implement Wexel Language Executor ABI v1.
+The public `yaegi-wasm` repository provides wrapper source, not a prebuilt `yaegi.wasm` release asset. Its browser wrapper exposes `window.yaegi.eval(source)` through Go's `syscall/js`; it does not implement Wexel Language Executor ABI v1.
 
-An attempt to resolve the Yaegi module with `go mod tidy` failed because DNS/network access to `proxy.golang.org` is unavailable in this environment. No interpreter WASM artifact was produced, so source interpretation could not be tested.
+Retried the build with the correct browser target, `GOOS=js GOARCH=wasm`. It could not resolve the Yaegi dependency because the required module checksum/dependency was not cached. Tried the alternate Go module proxy `goproxy.cn`; DNS/network access is unavailable. A separate `GOOS=wasip1` attempt is not compatible with this browser wrapper because `syscall/js` is excluded for WASI. No Yaegi interpreter artifact was produced, so arbitrary Go source interpretation remains untested.
 
-### Zig WASM compiler — BLOCKED
+A separate technical approach is to write a small WASI command wrapper around Yaegi that reads source from argv/stdin. That would be a different artifact and would still need the Yaegi module dependencies and a working WASI host adapter.
 
-The public `zigc-wasm` v0.11.0 release metadata lists a WASM compiler and a separate standard-library archive. The compiler is not a Zig interpreter and does not implement Wexel Language Executor ABI v1 directly.
+### Zig interpreter/compiler — BLOCKED
 
-An attempt to download the public compiler artifact failed because DNS/network access to `github.com` is unavailable. Zig is not installed in this environment, and no Zig artifact was available locally. Therefore, neither Zig source compilation nor execution was tested.
+No general-purpose, ready-made Zig-language interpreter WASM artifact was found in the evaluated public sources. Zig's official language overview describes Zig as a compiled language and notes that a third-party interpreter would be a future possibility. The available `zigc-wasm` v0.11.0 release is a **compiler built to run as WebAssembly**, not an interpreter for Zig source and not a Wexel executor.
+
+The release metadata lists a WASM compiler and a separate standard-library archive. An attempt to download the public compiler artifact failed because DNS/network access to `github.com` is unavailable. Zig is not installed in this environment, and no Zig compiler artifact was available locally. Therefore, neither Zig source compilation nor execution was tested.
+
+### WebAssembly's native API is not a Go/Zig interpreter
+
+The WebAssembly JavaScript/Web APIs compile, validate, instantiate, and run `.wasm` modules. They do not parse arbitrary `.go` or `.zig` source files. The runtime can execute a Go interpreter or Zig compiler *if that tool itself has been compiled to WASM*, but it does not provide those language tools automatically.
 
 ## ABI status
 
@@ -36,8 +42,8 @@ The bridge has not been validated end-to-end with actual Go-interpreter and Zig-
 ## Next integration steps
 
 1. Obtain a trusted, version-pinned Yaegi WASM artifact or build it in an environment with dependency access.
-2. Add a dedicated Go-WASM host adapter for the wrapper's JavaScript API, or build a compatible executor that implements Wexel ABI v1.
-3. Obtain `zig_small.wasm` and the matching `std.zip`; implement the required WASI filesystem/process adapter to compile VFS source and execute the generated module.
+2. Add a dedicated Go-WASM host adapter for the wrapper's actual API, or build a compatible executor that implements Wexel ABI v1.
+3. For Zig, either use the public Zig compiler built for WASM with its matching standard library and WASI filesystem/process adapter, or find/build a genuine Zig-language interpreter. These are different designs.
 4. Add integration tests that run a simple `.go` and `.zig` source file through `runtime.exec` and assert stdout, stderr, and exit status.
 5. Only mark source execution as supported after those tests pass.
 
