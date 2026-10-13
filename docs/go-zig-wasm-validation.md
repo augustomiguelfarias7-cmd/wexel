@@ -48,3 +48,17 @@ The bridge has not been validated end-to-end with actual Go-interpreter and Zig-
 5. Only mark source execution as supported after those tests pass.
 
 No GitHub Actions workflow is needed for these steps, and none is proposed here.
+
+
+## Follow-up attempt and agreed architecture (2026-10-13)
+
+The Yaegi module download was retried against these Go module proxies: `proxy.golang.org`, `goproxy.io`, `proxy.golang.com.cn`, `mirrors.aliyun.com/goproxy`, and `goproxy.cn`. Each attempt failed during DNS resolution in this execution environment, before the module archive could be downloaded. A GitHub source-archive download also failed. The local module cache contains only a lock file for Yaegi v0.16.1, not the source/module archive, so an offline build cannot proceed from the current cache.
+
+The selected design is now explicit:
+
+- **Go:** Yaegi is the first candidate and must interpret source code. A precompiled Go sample does not meet this requirement. The browser wrapper using `syscall/js` cannot simply be relabeled as a WASI artifact; a WASI-specific wrapper and matching Wexel host adapter may be needed.
+- **Zig:** use a Zig compiler compiled to WebAssembly, with the matching standard library and a compatible filesystem/process adapter. This is compilation, not source interpretation.
+- **Wexel integration:** preserve the VFS-first user flow. Do not claim end-to-end support until actual artifacts have been built and tests pass.
+- **Build policy:** no GitHub Actions workflow is required or proposed.
+
+Current blocker: external dependency/artifact downloads are unavailable in this environment. The next practical build attempt requires a connected build environment or a trusted copy of the pinned dependency source; no Yaegi WASM artifact has been produced yet.
