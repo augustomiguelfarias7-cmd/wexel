@@ -309,6 +309,28 @@ export class WexelRuntime {
     this.buzz.emit("extension:loaded", { name: manifest.name, version: manifest.version });
     return extension;
   }
+  /** Executa arquivos .go guardados na VFS através do executor Go registrado. */
+  async go(args: string[]): Promise<ExecResult> {
+    return this.runLanguageCommand("go", args);
+  }
+
+  /** Executa arquivos .zig guardados na VFS através do executor Zig registrado. */
+  async zig(args: string[]): Promise<ExecResult> {
+    return this.runLanguageCommand("zig", args);
+  }
+
+  private async runLanguageCommand(language: CompiledLanguage, args: string[]): Promise<ExecResult> {
+    if (args[0] !== "run" || !args[1]) {
+      return { stdout: "", stderr: `Uso: ${language} run <arquivo.${language}> [argumentos...]\\n`, exitCode: 2 };
+    }
+    const file = args[1];
+    const executor = this.languageExecutors.get(language);
+    if (!executor) {
+      return { stdout: "", stderr: `Executor ${language} não registrado. Configure ${language === "go" ? "goExecutorBytes" : "zigExecutorBytes"} com um artefato Wexel Language Executor ABI v1.\\n`, exitCode: 1 };
+    }
+    return executor.runFile(file, args.slice(2));
+  }
+
   async nativeLanguage(language: "c" | "cpp", args: string[]): Promise<ExecResult> {
     const command = args[0];
     if (command === "list") {
