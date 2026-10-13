@@ -11,7 +11,7 @@
   original da Wasmer preservada (ver LICENSE.md do pacote); modificações
   próprias sob Apache 2.0.
 - `go/wasm_exec.js`: runtime oficial do Go para executar artefatos `.wasm` compilados com `GOOS=js GOARCH=wasm`.
-- Go/Zig examples: `examples/languages/go/main.go` and `examples/languages/zig/main.zig` compile to separate WASM artifacts using `scripts/build-go-zig-wasm.sh`. The Go artifact uses `wasm_exec.js`; the Zig artifact targets WASI Preview 1 and is executed through the Node.js WASI host. CI uploads both binaries as a workflow artifact. The complete Go/Zig compiler toolchains are build-time dependencies, not embedded compilers inside the Wexel runtime.
+- Go/Zig source execution uses the Wexel Language Executor ABI v1 bridge documented in `docs/go-zig-wasm.md`. The runtime reads source files from its VFS and dispatches them to configured executor artifacts. Standalone Go/Zig WASM smoke-test files are examples only, not the source-execution API. No GitHub Actions Workflow is required.
 - `src/webpink_pip_adapter.py`: adaptador que liga o `pip` real (não
   reimplementado) à política de rede do WebPink, interceptando em
   `socket.create_connection`.
