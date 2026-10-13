@@ -99,8 +99,8 @@ export class WexelLanguageExecutor {
       }
 
       // 2. Self-bootstrap: we need the Go JS runtime (wasm_exec.js).
-      // Prefer the content passed in options.wasmExecJs.
-      // If not provided, we try to locate a global or throw a clear error.
+      // Prefer the official runtime source passed through WexelOptions.goWasmExecJs.
+      // If omitted, reuse an already-loaded global Go runtime when available.
       let wasmExecSource = options.wasmExecJs;
 
       if (!wasmExecSource) {
