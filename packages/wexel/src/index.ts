@@ -10,6 +10,8 @@ import { runCurl } from "./curl.js";
 
 import { runNativeSource } from "./native-compiler.js";
 import { WexelLanguageExecutor, type CompiledLanguage } from "./language-executors.js";
+import { readPackagedAsset, readPackagedGzip } from "./toolchain-assets.js";
+import { WexelZigWasiToolchain } from "./zig-wasi-toolchain.js";
 import { runMultiCVfs } from "./multic.js";
 import { WexelShell } from "./shell.js";
 import { WexelMemory64FileSystem, type WexelFileSystemLike } from "./filesystem.js";
@@ -106,6 +108,8 @@ export class WexelRuntime {
   private readonly gitToken?:     string;
   private readonly nativeCliBytes?: BufferSource;
   private readonly languageExecutors = new Map<CompiledLanguage, WexelLanguageExecutor>();
+  private readonly zigWasiToolchain = new WexelZigWasiToolchain();
+  private bundledGoExecutor?: Promise<WexelLanguageExecutor>;
   private _git?:          WexelGit;
 
 
@@ -165,8 +169,13 @@ export class WexelRuntime {
     if (request.language === "go" || request.language === "zig") {
       if (!request.file) throw new Error(`Executor ${request.language} exige um arquivo na VFS; use /home/main.${request.language}.`);
       const executor = this.languageExecutors.get(request.language);
-      if (!executor) throw new Error(`Executor ${request.language} não registrado. Configure ${request.language === "go" ? "goExecutorBytes" : "zigExecutorBytes"} com um artefato Wexel Language Executor ABI v1.`);
-      return executor.runFile(request.file, request.args ?? []);
+      if (executor) return executor.runFile(request.file, request.args ?? []);
+      if (request.language === "zig") return this.zigWasiToolchain.runFile(this.fs, request.file, request.args ?? []);
+      try {
+        return await (await this.getBundledGoExecutor()).runFile(request.file, request.args ?? []);
+      } catch (error) {
+        return { stdout: "", stderr: `Falha ao iniciar o interpretador Go embutido: ${error instanceof Error ? error.message : String(error)}\n`, exitCode: 1 };
+      }
     }
 
     if (request.language === "python") {
@@ -179,6 +188,29 @@ export class WexelRuntime {
   }
 
   // ── wexeljs shell (Node.js-compatível, via Wexel.js) ────────────────────────
+
+  /** Compila Zig para WASI e grava o artefato .wasm na VFS Memory64. */
+  async compileZig(sourcePath: string, outputPath?: string): Promise<string> {
+    return (await this.zigWasiToolchain.compileFile(this.fs, sourcePath, outputPath)).outputPath;
+  }
+
+  private getBundledGoExecutor(): Promise<WexelLanguageExecutor> {
+    if (!this.bundledGoExecutor) {
+      this.bundledGoExecutor = Promise.all([
+        readPackagedGzip("../assets/toolchains/go/yaegi.wasm.gz"),
+        readPackagedAsset("../assets/toolchains/go/wasm_exec.js"),
+      ]).then(([artifact, wasmExecJs]) => {
+        const moduleBytes = new Uint8Array(artifact);
+        return WexelLanguageExecutor.load({
+          language: "go",
+          artifact: moduleBytes.buffer,
+          fs: this.fs,
+          wasmExecJs: new TextDecoder().decode(wasmExecJs),
+        });
+      });
+    }
+    return this.bundledGoExecutor;
+  }
 
   async wexeljs(args: string[]): Promise<ExecResult> {
     const [command, target, ...scriptArgs] = args;

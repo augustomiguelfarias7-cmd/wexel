@@ -34,6 +34,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.3.0",
     "@wexel/core": "0.1.0",
     "fflate": "^0.8.3"
   },

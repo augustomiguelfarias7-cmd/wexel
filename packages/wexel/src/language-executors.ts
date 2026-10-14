@@ -86,15 +86,24 @@ export class WexelLanguageExecutor {
       artifact: options.artifact,
       fs: options.fs,
       ready: false,
+      runFn: null as null | ((source: string) => any),
       evalFn: null as null | ((source: string) => any),
+      resetFn: null as null | (() => any),
       goInstance: null as any,
       error: null as string | null,
     };
 
     try {
+      const wexelApi = (globalThis as any).wexelYaegi;
+      if (typeof wexelApi?.run === "function") {
+        ctx.runFn = wexelApi.run.bind(wexelApi);
+        ctx.ready = true;
+        return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
+      }
+
       // 1. If the host already has yaegiEval, reuse it (fast path).
       if (typeof globalThis !== "undefined" && typeof (globalThis as any).yaegiEval === "function") {
-        ctx.evalFn = (globalThis as any).yaegiEval;
+        ctx.runFn = (globalThis as any).yaegiEval;
         ctx.ready = true;
         return new WexelLanguageExecutor("go", "legacy-yaegi", null, options.fs, ctx);
       }
@@ -141,13 +150,35 @@ export class WexelLanguageExecutor {
 
       const go = new Go();
       const result = await WebAssembly.instantiate(options.artifact, go.importObject);
-      go.run(result.instance);
+      const runtimePromise = go.run(result.instance);
+      if (runtimePromise && typeof runtimePromise.catch === "function") {
+        runtimePromise.catch((error: unknown) => { ctx.error = `Go WASM terminou inesperadamente: ${error instanceof Error ? error.message : String(error)}`; });
+      }
 
-      // Give the Go runtime a moment to register the JS callbacks
-      await new Promise((r) => setTimeout(r, 50));
+      // Wait briefly for package initialization before looking up the wrapper API.
+      for (let attempt = 0; attempt < 500; attempt++) {
+        if ((globalThis as any).wexelYaegi?.run || (globalThis as any).yaegi?.run || (globalThis as any).yaegi?.eval || (globalThis as any).yaegiEval) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
 
       if (typeof (globalThis as any).yaegiEval === "function") {
-        ctx.evalFn = (globalThis as any).yaegiEval;
+        ctx.runFn = (globalThis as any).yaegiEval;
+        ctx.ready = true;
+        ctx.goInstance = go;
+      } else if (typeof (globalThis as any).wexelYaegi?.run === "function") {
+        const api = (globalThis as any).wexelYaegi;
+        ctx.runFn = api.run.bind(api);
+        ctx.ready = true;
+        ctx.goInstance = go;
+      } else if (typeof (globalThis as any).yaegi?.run === "function") {
+        const api = (globalThis as any).yaegi;
+        ctx.runFn = api.run.bind(api);
+        ctx.ready = true;
+        ctx.goInstance = go;
+      } else if (typeof (globalThis as any).yaegi?.eval === "function") {
+        const api = (globalThis as any).yaegi;
+        ctx.evalFn = api.eval.bind(api);
+        ctx.resetFn = typeof api.reset === "function" ? api.reset.bind(api) : null;
         ctx.ready = true;
         ctx.goInstance = go;
       } else {
@@ -252,7 +283,7 @@ export class WexelLanguageExecutor {
       return { stdout: "", stderr: ctx.error + "\n", exitCode: 1 };
     }
 
-    if (!ctx?.ready || typeof ctx.evalFn !== "function") {
+    if (!ctx?.ready || (typeof ctx.runFn !== "function" && typeof ctx.evalFn !== "function")) {
       return {
         stdout: "",
         stderr:
@@ -264,12 +295,26 @@ export class WexelLanguageExecutor {
     }
 
     try {
-      const result = ctx.evalFn(source);
+      if (typeof ctx.runFn === "function") {
+        const result = await ctx.runFn(source);
+        if (result && typeof result === "object") {
+          const success = result.success !== false && !result.error;
+          const message = String(result.error ?? "");
+          const stderr = String(result.stderr ?? "") + (message ? `${message}\n` : "");
+          return { stdout: String(result.stdout ?? ""), stderr, exitCode: success ? Number(result.exitCode ?? 0) : Number(result.exitCode ?? 1) };
+        }
+        return { stdout: String(result ?? ""), stderr: "", exitCode: 0 };
+      }
+
+      ctx.resetFn?.();
+      const result = await ctx.evalFn(source);
       if (result && typeof result === "object") {
+        const errorMessage = String(result.error ?? "");
+        const success = result.success !== false && !errorMessage;
         return {
-          stdout: String(result.stdout ?? ""),
-          stderr: String(result.stderr ?? result.error ?? ""),
-          exitCode: result.error ? 1 : 0,
+          stdout: String(result.stdout ?? result.output ?? ""),
+          stderr: String(result.stderr ?? errorMessage),
+          exitCode: success ? Number(result.exitCode ?? 0) : Number(result.exitCode ?? 1),
         };
       }
       return { stdout: String(result ?? ""), stderr: "", exitCode: 0 };

@@ -15,6 +15,28 @@ describe("Wexel runtime", () => {
     expect(rt.core.exports.wexel_vfs_directory_count()).toBeGreaterThan(1);
     expect(rt.core.exports.memory).toBeInstanceOf(WebAssembly.Memory);
   });
+  it("interpreta um programa Go pela toolchain Yaegi embutida", async () => {
+    const rt = await runtime();
+    rt.fs.write("/home/main.go", `package main
+import "fmt"
+func main() { fmt.Println("Go interpretado no WASM") }
+    `);
+    const result = await rt.exec({ language: "go", file: "/home/main.go" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("Go interpretado no WASM\n");
+    expect(result.stderr).toBe("");
+  });
+  it("compila Zig com o compilador WASM, guarda o binário na VFS e executa via WASI", async () => {
+    const rt = await runtime();
+    rt.fs.write("/home/main.zig", `const std = @import("std");
+pub fn main() !void { std.debug.print("Zig compilado no WASM\\n", .{}); }
+    `);
+    const result = await rt.exec({ language: "zig", file: "/home/main.zig" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Zig compilado no WASM");
+    expect(rt.fs.exists("/home/main.wasm")).toBe(true);
+    expect(WebAssembly.validate(rt.fs.read("/home/main.wasm"))).toBe(true);
+  });
   it("registra e executa artefatos WASM pelo gerenciador do runtime", async () => {
     const rt = await runtime();
     const core = await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url));
@@ -115,9 +137,12 @@ describe("Wexel runtime", () => {
   });
   it("exige arquivo da VFS para Go e não faz fallback para execução de texto", async () => {
     const rt = await runtime();
-    rt.fs.write("/home/main.go", 'package main\\nfunc main() {}');
-    await expect(rt.exec({ language: "go", file: "/home/main.go" })).rejects.toThrow("Executor go não registrado");
-    await expect(rt.exec({ language: "zig", code: "pub fn main() void {}" })).rejects.toThrow("exige um arquivo na VFS");
+    rt.fs.write("/home/main.go", "package main\nfunc main() {");
+    const invalidSource = await rt.exec({ language: "go", file: "/home/main.go" });
+    expect(invalidSource.exitCode).toBe(1);
+    expect(invalidSource.stderr).not.toBe("");
+    await expect(rt.exec({ language: "go", code: "package main" })).rejects.toThrow(/exige um arquivo na VFS/i);
+    await expect(rt.exec({ language: "zig", code: "pub fn main() void {}" })).rejects.toThrow(/exige um arquivo na VFS/i);
   });
   it("aceita um executor CPython/WebAssembly real por adapter", async () => {
     const rt = await runtime();

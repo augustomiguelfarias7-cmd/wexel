@@ -20,7 +20,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - **New in 4.0:** real Linux kernel compiled to WebAssembly (NOMMU), running a genuine BusyBox shell inside `NodeExecution` via `worker_threads`
 - **New in 4.0:** shell now runs on the real BusyBox inside that kernel instead of a 40-command reimplementation
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
-- **Go and Zig source execution:** the runtime exposes `runtime.exec({ language: "go" | "zig", file: "/home/main.go" })` and a versioned Wexel Language Executor ABI that reads source files from the VFS. The host-side bridge is implemented; actual Go/Zig ABI-v1 executor artifacts still need to be bundled. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
+- **New in 4.0:** Go runs through the Yaegi interpreter compiled to WebAssembly; Zig source is compiled by a Zig compiler also compiled to WebAssembly, then the generated WASI module is stored in the Memory64 VFS and executed. Both toolchains load lazily from bundled assets. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
 - Virtual shell with `~` and configurable home directories
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
@@ -97,7 +97,7 @@ Wexel Runtime
 See `packages/wexel/assets/README-4.0.md` for details on the new 4.0 artifacts
 (the compiled kernel, Wexel.js, and their integration points).
 
-Go/Zig VFS-first execution and the Wexel Language Executor ABI v1 are documented in `docs/go-zig-wasm.md`. The older standalone build/run helpers are low-level smoke-test utilities, not the runtime API. Full source execution requires bundled executor artifacts implementing ABI v1; the ordinary Go and Zig program artifacts do not compile arbitrary source files.
+Go/Zig execution details and the optional Wexel Language Executor ABI v1 override are documented in `docs/go-zig-wasm.md`. The default Go path interprets source with the third-party Yaegi interpreter; it is not the official Go compiler or an official Go-project interpreter. The default Zig path compiles `.zig` source to `wasm32-wasi` using the bundled Zig v0.11.0 compiler module and stores the generated `.wasm` beside the source in the VFS.
 
 For backend applications, `NodeExecution` adds another layer:
 
@@ -124,7 +124,7 @@ Each sandbox is created independently and receives its own runtime instance and 
 
 ### Gestão de artefatos WebAssembly
 
-`runtime.artifacts` centraliza o carregamento, registro, consulta, invocação de exports e descarregamento de módulos WASM. `runtime.loadModule(source, { name, imports })` continua compatível e registra o módulo no gerenciador. O engine WebAssembly do host é quem instancia e executa esses módulos; o core Memory64 mantém o VFS, não compila Go/Zig nem guarda automaticamente os binários de ferramentas dentro de sua memória linear.
+`runtime.artifacts` centraliza o carregamento, registro, consulta, invocação de exports e descarregamento de módulos WASM. `runtime.loadModule(source, { name, imports })` continua compatível e registra o módulo no gerenciador. O engine WebAssembly do host instancia e executa os módulos; o core Memory64 mantém os arquivos no VFS. O compilador Zig e o interpretador Yaegi são artefatos WASM separados carregados sob demanda, e o `.wasm` produzido por Zig é gravado na VFS.
 
 ```ts
 runtime.fs.write("/artifacts/ferramenta.wasm", wasmBytes);

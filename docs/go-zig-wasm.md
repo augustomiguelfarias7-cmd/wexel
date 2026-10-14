@@ -1,47 +1,56 @@
-# Go and Zig source execution inside Wexel
+# Go and Zig execution in Wexel 4.0
 
-Go and Zig are routed through Wexel's language-executor layer. The preferred path is the Wexel Language Executor ABI v1. A legacy adapter path also accepts the classic Yaegi (js/wasm) artifact and the public zigc-wasm compiler.
+Wexel bundles WebAssembly toolchains for both languages. They are loaded lazily on first use; no native Go or Zig compiler is needed by the application at runtime.
 
-## Runtime API
+## Go: Yaegi interpreter compiled to WebAssembly
+
+The bundled Go artifact is the [Yaegi](https://github.com/traefik/yaegi) interpreter (v0.16.1) compiled for `GOOS=js GOARCH=wasm`. A small Wexel wrapper exposes an isolated `run(source)` API. Wexel reads the Go source from its VFS, Yaegi interprets it, and the result includes captured stdout/stderr and an exit status.
 
 ```ts
-import { Wexel } from "wexel";
-
-const runtime = await Wexel.create({
-  goExecutorBytes,   // ABI v1 or legacy Yaegi
-  zigExecutorBytes,  // ABI v1 or legacy zigc-wasm
-});
-
 runtime.fs.write("/home/main.go", `package main
 import "fmt"
-func main() { fmt.Println("Hello from Go inside Wexel") }`);
-
-const goResult = await runtime.exec({ language: "go", file: "/home/main.go" });
-console.log(goResult.stdout, goResult.stderr, goResult.exitCode);
+func main() { fmt.Println("Hello from interpreted Go") }
+`);
+const result = await runtime.exec({ language: "go", file: "/home/main.go" });
+console.log(result.stdout, result.stderr, result.exitCode);
 ```
 
-## Wexel Language Executor ABI v1 (preferred)
+**Compatibility note:** Yaegi is a third-party Go interpreter, not the official Go compiler and not an interpreter maintained by the Go project. It interprets supported Go constructs; it does not compile arbitrary Go source into a native Go WebAssembly executable. Programs that require unsupported language/runtime features may not work.
 
-The artifact must export `memory`, `wexel_executor_abi_version` (returns 1), `wexel_executor_alloc`, `wexel_executor_run`, and the stdout/stderr/exit_code helpers. See the previous version of this document for the full contract.
+## Zig: Zig compiler compiled to WebAssembly
 
-## Legacy adapters
+The bundled compiler is `zig-wasm/zigc-wasm` v0.11.0 with its matching `std.zip`. Wexel runs the compiler module under a WASI host, compiles `.zig` source to **`wasm32-wasi`**, writes the generated `.wasm` next to the source in the Memory64-backed VFS, then executes the generated module through WASI.
 
-### Go – Yaegi (self-bootstrapping)
+```ts
+runtime.fs.write("/home/main.zig", `
+const std = @import("std");
+pub fn main() !void {
+    std.debug.print("Hello from Zig\\n", .{});
+}
+`);
 
-Pass the Yaegi `js/wasm` artifact as `goExecutorBytes`.
+// Compile only; the generated path is /home/main.wasm by default.
+const artifactPath = await runtime.compileZig("/home/main.zig");
 
-The adapter tries, in order:
+// The regular execution path compiles and runs the file in one call.
+const result = await runtime.exec({ language: "zig", file: "/home/main.zig" });
+console.log(artifactPath, result.stdout, result.stderr, result.exitCode);
+```
 
-1. Reuse `globalThis.yaegiEval` if it already exists.
-2. If you also supply the text of the official `wasm_exec.js` (via a future options extension or by making it available), the adapter evaluates it, creates a `Go` instance, instantiates the WASM and wires `yaegiEval` automatically.
-3. If neither is possible it returns a clear error telling you what is missing.
+The produced WASI program receives command-line arguments and can write to stdout/stderr. The current execution host does not preopen the guest program's filesystem. The compiler's own short-lived input/stdlib files are hosted in the WASI shim; the user source and generated `.wasm` remain in the Wexel VFS.
 
-**Goal:** the end-user of Wexel should only need to pass the bytes. The host library does the rest.
+## Core and artifact boundary
 
-### Zig – zigc-wasm
+The Memory64 core continues to own the Wexel VFS: file names, directory records, source files and generated Zig modules are stored in its linear memory. The 16 GiB value is a configured **linear-memory address-space ceiling**, not reserved physical PC RAM. Yaegi and the Zig compiler are separate WASM modules, loaded on demand; neither is part of the core itself.
 
-The public `zig_small_strip.wasm` (+ `std.zip`) is accepted. Full compilation still requires a WASI host with preopens. The adapter registers the artifact and returns a diagnostic until the WASI shim is finished.
+A custom executor can still override the bundled path by supplying `goExecutorBytes` or `zigExecutorBytes` to `Wexel.create()`. Artifacts implementing the Wexel Language Executor ABI v1 remain supported. The default bundled tools use Yaegi and Zig's WASI compiler rather than requiring that custom ABI.
 
-## Boundary
+## Rebuilding bundled assets
 
-ABI v1 remains the clean long-term contract. The legacy path exists so the already-built Yaegi and zigc-wasm binaries can be used with minimal friction while true ABI-v1 executors are prepared.
+```sh
+./toolchains/go-yaegi/build.sh
+./toolchains/build-zig-wasm.sh
+npm run build
+```
+
+The Go wrapper and module lock are in `toolchains/go-yaegi/`. The Zig rebuild script pins the v0.11.0 release and checks the compiler and standard-library SHA-256 hashes. Third-party notices/licenses accompany the assets and wrapper sources.
