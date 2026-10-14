@@ -22,7 +22,7 @@
 
 import { mkdir, readdir, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { join, dirname, relative } from "node:path";
-import { WexelFileSystem } from "./index.js";
+import { WexelFileSystem } from "./filesystem.js";
 
 export interface PersistentFSOptions {
   /** Quota em bytes. Padrão: 5 GB. */

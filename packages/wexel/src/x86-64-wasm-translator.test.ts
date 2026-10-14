@@ -7,7 +7,7 @@ function instantiate(bytes:Uint8Array, syscall=(..._args:bigint[])=>0n) {
   expect(WebAssembly.validate(result.wasm)).toBe(true);
   return WebAssembly.instantiate(result.wasm, {
     wexel_linux: { syscall },
-  });
+  }).then(({ instance }) => instance);
 }
 
 describe('x86-64 -> WASM binary translator',()=>{

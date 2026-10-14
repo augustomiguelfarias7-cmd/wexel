@@ -245,7 +245,7 @@ export class WexelWasiShim {
         let data = new Uint8Array();
         if (self.fs.exists(normalized)) {
           try {
-            data = self.fs.read(normalized);
+            data = new Uint8Array(self.fs.read(normalized));
           } catch {
             /* empty */
           }

@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "node --experimental-wasm-memory64 ../../node_modules/vitest/vitest.mjs run --pool=threads --poolOptions.threads.singleThread",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

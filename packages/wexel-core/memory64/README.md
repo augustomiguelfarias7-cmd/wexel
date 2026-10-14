@@ -1,35 +1,42 @@
 # Wexel Core Memory64 VFS
 
-This is an experimental Memory64 core target for Wexel. It deliberately separates WebAssembly memory management from filesystem behavior.
+This is the default WebAssembly core used by the Wexel runtime. It deliberately separates linear-memory ownership from the TypeScript filesystem adapter.
 
 ## Modules
 
-- `src/wasm64_memory.cpp` owns the linear-memory limit, growth, and arena allocation.
-- `src/wasm64_vfs.cpp` owns the hierarchical VFS and requests memory through the manager's exported allocator.
-- `tools/build-memory64.sh` builds both modules and links them into one WebAssembly artifact.
-- `tools/test-memory64.mjs` instantiates that artifact in a Memory64-capable Node.js runtime and exercises directories, file I/O, and growth.
+- `src/wasm64_memory.cpp` owns the 64-bit linear-memory limit, growth, and a 16-byte-aligned free-list allocator with block splitting/coalescing.
+- `src/vfs-memory64.cpp` owns a dynamic hierarchical VFS table; path and file buffers are stored in the core's linear memory and released/reused on overwrite or removal.
+- `tools/build-memory64.sh` compiles both modules and links one Memory64 `.wasm` artifact.
+- `tools/test-memory64.mjs` exercises the 64-bit ABI, block reuse, 700 directories (beyond the old 512-entry ceiling), quota/read/write/removal, and growth to the configured maximum.
+- `../../wexel/src/filesystem.ts` contains `WexelMemory64FileSystem`, the TypeScript adapter used by default by `Wexel.create()`.
 
 ## Build and test
 
-Run these commands from this directory:
+From the repository root:
 
 ```sh
-./tools/build-memory64.sh
+npm run build
+npm test
+```
+
+For a direct core build from this directory:
+
+```sh
+CLANGXX=clang++-19 WASM_LD=wasm-ld-19 bash tools/build-memory64.sh
 node --experimental-wasm-memory64 tools/test-memory64.mjs
 ```
 
-Requirements: Clang/LLVM with `wasm64-unknown-unknown`, `wasm-ld` with Memory64 support, Python 3, and a Node.js build/runtime that supports the experimental Memory64 feature.
+Requirements: Clang/LLVM and LLD with `wasm64-unknown-unknown`/Memory64 support, Python 3 for the binary post-processing helper, and a runtime with Memory64 support. In the validated Node.js 22.13 environment, the feature is experimental and requires `--experimental-wasm-memory64`.
 
 ## Memory and filesystem behavior
 
-- Compiled maximum: 16 GiB of WebAssembly linear memory.
-- Initial memory: 16 MiB. The maximum is not reserved or filled at startup.
-- The VFS logical quota may be configured up to 16 GiB, but metadata and allocator overhead also use linear memory.
-- Root (`/`) exists implicitly. New directories require an existing parent. Listing returns immediate child names. Only empty directories can be removed.
-- Paths are absolute and normalized; this is a Linux-like hierarchy, not full POSIX/Linux filesystem compatibility.
-- The arena allocator does not reclaim physical linear-memory space when files are overwritten or removed. Logical quota accounting is updated, but repeated writes may consume more physical linear memory than the live file contents.
-- The test grows linear memory to 16 GiB and verifies a small file survives that growth. It does not fill 16 GiB with file data and does not prove the host has 16 GiB of free physical RAM.
+- Compiled maximum: 16 GiB of WebAssembly linear-memory address space; initial memory is 16 MiB and the maximum is not pre-reserved. This is not a cap on the host PC's RAM and does not reserve 16 GiB of physical RAM.
+- Default logical file-payload quota: 5 GiB; configurable to at most 16 GiB. Metadata and allocator overhead also consume linear memory, so payload capacity is lower than the configured quota.
+- Removed/overwritten allocations are reusable. The underlying WebAssembly memory does not shrink after it grows.
+- Root (`/`) exists implicitly. The host adapter creates missing parent directories. The low-level VFS exports immediate-child names; the high-level `list()` returns descendants relative to the requested directory.
+- Paths are UTF-8 absolute normalized paths; this is a Linux-like hierarchy, not full POSIX/Linux filesystem compatibility.
+- The 16 GiB test verifies that the engine grows the linear memory to its configured ceiling and that small VFS data survives. It does not write 16 GiB of file content. Physical resource use depends on pages touched and the runtime/OS; the configured ceiling is neither a RAM reservation nor a PC-RAM limit.
 
-## Integration status
+## ABI boundary
 
-This target is separate from the existing WASM32 `src/core.wat` artifact. The default Wexel package/runtime does not switch to this target automatically yet. Integration requires a Memory64-capable runtime path and host ABI wiring for both Wexel Browser and Wexel NodeExecution.
+The core manages its own VFS and memory. The host JavaScript WebAssembly engine instantiates and executes other WebAssembly modules. Compiler tools such as Go/Zig therefore need separate compiler adapters; they are not automatically Wexel Language Executor ABI v1 modules.

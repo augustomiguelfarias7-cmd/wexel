@@ -1,4 +1,5 @@
-import type { ExecResult, WexelFileSystem } from "./index.js";
+import type { ExecResult } from "./index.js";
+import type { WexelFileSystemLike } from "./filesystem.js";
 
 export type CompiledLanguage = "go" | "zig";
 
@@ -6,7 +7,7 @@ export interface LanguageExecutorOptions {
   /** Compiled WebAssembly executor/compiler artifact. Prefer ABI v1; legacy Yaegi/zigc also accepted. */
   artifact: BufferSource;
   language: CompiledLanguage;
-  fs: WexelFileSystem;
+  fs: WexelFileSystemLike;
   /** Explicit imports required by the executor artifact (for example, a WASI host). */
   imports?: WebAssembly.Imports;
   /** Optional source of wasm_exec.js (string content). If omitted the adapter tries to bootstrap with a minimal Go runtime. */
@@ -41,7 +42,7 @@ export class WexelLanguageExecutor {
     readonly language: CompiledLanguage,
     private readonly mode: "abi-v1" | "legacy-yaegi" | "legacy-zigc",
     private readonly instance: WebAssembly.Instance | null,
-    private readonly fs: WexelFileSystem,
+    private readonly fs: WexelFileSystemLike,
     private readonly legacyCtx: any = null,
   ) {}
 

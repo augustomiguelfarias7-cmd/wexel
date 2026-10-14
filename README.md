@@ -82,6 +82,8 @@ Wexel Runtime
     │
     ├── Virtual Shell
     ├── Virtual Filesystem
+    │     └── Memory64 core (allocator + VFS)
+    ├── WebAssembly artifact manager
     ├── Permissions
     ├── Storage Quota
     │
@@ -119,6 +121,20 @@ Node.js / Express / Fastify / API
 ```
 
 Each sandbox is created independently and receives its own runtime instance and virtual filesystem.
+
+### Gestão de artefatos WebAssembly
+
+`runtime.artifacts` centraliza o carregamento, registro, consulta, invocação de exports e descarregamento de módulos WASM. `runtime.loadModule(source, { name, imports })` continua compatível e registra o módulo no gerenciador. O engine WebAssembly do host é quem instancia e executa esses módulos; o core Memory64 mantém o VFS, não compila Go/Zig nem guarda automaticamente os binários de ferramentas dentro de sua memória linear.
+
+```ts
+runtime.fs.write("/artifacts/ferramenta.wasm", wasmBytes);
+const instance = await runtime.loadModuleFromVfs("/artifacts/ferramenta.wasm");
+const [artifact] = runtime.artifacts.list();
+const version = runtime.artifacts.invoke(artifact.id, "version");
+runtime.artifacts.unload(artifact.id); // remove as referências mantidas pelo gerenciador
+```
+
+Módulos só podem ser carregados quando `permissions.modules` está habilitada. Imports são explícitos; um módulo WASI ainda precisa de um host WASI compatível fornecido por `imports`.
 
 ## Wexel.js
 
@@ -210,17 +226,18 @@ The filesystem is virtual. Operations against these paths do not automatically a
 
 ### Storage quotas and Memory64
 
-**Memory64** is a WebAssembly feature that allows linear memories to use 64-bit address indexes instead of the 32-bit indexes used by traditional WASM32 memories. This makes address spaces larger than 4 GiB possible in compatible engines and toolchains. It does not mean that a runtime automatically has that much physical RAM available. See the [WebAssembly Memory64 proposal](https://github.com/WebAssembly/memory64).
+**Memory64** is a WebAssembly feature that allows linear memories to use 64-bit address indexes instead of the 32-bit indexes used by traditional WASM32 memories. This makes address spaces larger than 4 GiB possible in compatible engines and toolchains. The configured 16 GiB maximum is a limit on the module's linear-memory address space: it is not a limit on the host PC's RAM, nor does it reserve 16 GiB of physical RAM. See the [WebAssembly Memory64 proposal](https://github.com/WebAssembly/memory64).
 
-In Wexel, `packages/wexel-core/memory64/` contains an **experimental core target** that separates linear-memory allocation from virtual-filesystem behavior:
+The default Wexel core is now the **Memory64 core** in `packages/wexel-core/memory64/`. It separates linear-memory allocation from virtual-filesystem behavior:
 
-- **Memory manager:** controls allocation, memory growth, and the configured maximum.
-- **Virtual filesystem (VFS):** requests memory from that manager for file contents and path metadata; it does not grow WebAssembly memory directly.
-- **Directory and file operations:** supports normalized absolute paths, directory creation, immediate-child listing, file reads/writes/removal, and removal of empty directories. This is a Linux-like hierarchy, not full POSIX filesystem compatibility.
+- **Memory manager:** owns Memory64 allocation, reuses freed blocks, grows memory on demand, and enforces a configured maximum.
+- **Virtual filesystem (VFS):** stores file payloads, path names, and directory records in the core's linear memory; the previous fixed 512-node table has been removed.
+- **Host adapter:** `WexelMemory64FileSystem` bridges the TypeScript runtime to the core ABI, while persistent Map/IndexedDB adapters remain opt-in.
+- **Directory and file operations:** supports normalized absolute paths, recursive parent creation, listing, reads/writes, file/directory removal, quota accounting, and snapshots. This is a Linux-like hierarchy, not full POSIX compatibility.
 
-The experimental target has a configured maximum of **16 GiB of linear memory** and starts at **16 MiB**. The maximum is not reserved at startup. Real growth depends on Memory64 support in the host runtime and available resources. A logical VFS quota limits live file contents, while metadata and allocator overhead also consume linear memory.
+The core is built with a maximum of **16 GiB of WebAssembly linear-memory address space** and starts at **16 MiB**. Memory grows on demand; the maximum is not reserved at startup and is not a measurement or cap of the PC's physical RAM. The default logical VFS quota remains **5 GiB** and can be configured up to 16 GiB; allocator metadata also occupies part of the linear memory, so file payload capacity is lower than the quota. Free-list reuse prevents repeated overwrites/removals from monotonically consuming the entire arena, but linear memory itself does not shrink after growth.
 
-**Integration status:** this target has its own build and test under `packages/wexel-core/memory64/`. The normal package still uses the existing WASM32 core until a Memory64-capable runtime path and host ABI integration are completed. The current arena allocator does not reclaim physical linear-memory space after overwrites or removals, so the 16 GiB maximum is not a promise that 16 GiB of file payload can be stored.
+**Runtime requirement:** Memory64 support varies by engine and version. The core build requires Clang/LLD with the `wasm64` target. Node.js 22.13 in the validated environment requires `--experimental-wasm-memory64` (the repository test script supplies this flag); check the target runtime before deployment. The 16 GiB test verifies linear-memory growth and preservation of small files—it does not write 16 GiB of file data. Actual physical resource use depends on pages touched and the host runtime/OS; the configured linear-memory ceiling itself does not reserve or cap PC RAM. Run `npm run build` and `npm test` from the repository root.
 
 ## NodeExecution
 
@@ -693,5 +710,3 @@ Wexel 3.0 introduced the Deno runtime integration, NodeExecution sandbox manager
 Wexel is licensed under the Apache License 2.0.
 
 See [`LICENSE.md`](./LICENSE.md) for the complete license text.
-
-4.0.0 shortly 

@@ -14,10 +14,10 @@
  *   curl --json '<body>' <url>        (atalho: -X POST -H Content-Type:application/json)
  */
 
-import type { WexelFileSystem } from "./index.js";
+import type { WexelFileSystemLike } from "./filesystem.js";
 
 export interface CurlOptions {
-  fs?:      WexelFileSystem;
+  fs?:      WexelFileSystemLike;
   fetcher?: typeof fetch;
 }
 

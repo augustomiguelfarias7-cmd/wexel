@@ -3,12 +3,13 @@
  * Carrega python.wasm via WebAssembly API + WexelWasiShim (sem Wasmtime).
  */
 
-import type { ExecResult, WexelFileSystem } from "./index.js";
+import type { ExecResult } from "./index.js";
+import type { WexelFileSystemLike } from "./filesystem.js";
 import { WexelAssetLoader, type WexelAssetLoaderOptions } from "./asset-loader.js";
 import { WexelWasiShim, type WasiShimOptions } from "./wasi-shim.js";
 
 export interface BrowserWasiPythonOptions {
-  fs?: WexelFileSystem;
+  fs?: WexelFileSystemLike;
   pythonWasm?: BufferSource | string;
   assetLoader?: WexelAssetLoader;
   assetLoaderOptions?: WexelAssetLoaderOptions;
@@ -88,7 +89,7 @@ export function createBrowserWasiPythonRunner(options: BrowserWasiPythonOptions 
 
 export function browserWasiPythonRunnerFactory(
   options: Omit<BrowserWasiPythonOptions, "fs"> = {},
-): (fs: WexelFileSystem) => (code: string, args: string[]) => Promise<ExecResult> {
+): (fs: WexelFileSystemLike) => (code: string, args: string[]) => Promise<ExecResult> {
   return (fs) => {
     const runner = createBrowserWasiPythonRunner({ ...options, fs });
     return (code, args) => runner.run(code, args);

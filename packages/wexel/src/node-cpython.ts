@@ -2,7 +2,8 @@ import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import type { ExecResult, WexelFileSystem } from "./index.js";
+import type { ExecResult } from "./index.js";
+import type { WexelFileSystemLike } from "./filesystem.js";
 
 export interface WasiPythonOptions {
   pythonWasm: string;
@@ -11,7 +12,7 @@ export interface WasiPythonOptions {
   wasmtime?: string;
   cwd?: string;
   env?: Record<string, string>;
-  fs?: WexelFileSystem;
+  fs?: WexelFileSystemLike;
 }
 
 /** Executa o CPython 3.14.7 WASI real no backend Node.js via Wasmtime. */

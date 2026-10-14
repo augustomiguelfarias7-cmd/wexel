@@ -9,7 +9,8 @@ import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import type { ExecResult, WexelFileSystem } from "./index.js";
+import type { ExecResult } from "./index.js";
+import type { WexelFileSystemLike } from "./filesystem.js";
 
 export interface NodeWasiPythonOptions {
   pythonWasm?: string | BufferSource;
@@ -17,7 +18,7 @@ export interface NodeWasiPythonOptions {
   args?: string[];
   env?: Record<string, string>;
   workDir?: string;
-  fs?: WexelFileSystem;
+  fs?: WexelFileSystemLike;
 }
 
 function defaultPythonRoot(): string {
@@ -166,6 +167,6 @@ export function createNodeWasiPythonRunner(options: Omit<NodeWasiPythonOptions, 
 
 export function nodeWasiPythonRunnerFactory(
   options: Omit<NodeWasiPythonOptions, "fs"> = {},
-): (fs: WexelFileSystem) => (code: string, args: string[]) => Promise<ExecResult> {
+): (fs: WexelFileSystemLike) => (code: string, args: string[]) => Promise<ExecResult> {
   return (fs) => (code, args) => runNodeWasiPython(code, { ...options, fs });
 }

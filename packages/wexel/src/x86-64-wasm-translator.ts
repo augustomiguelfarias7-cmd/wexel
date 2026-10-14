@@ -43,7 +43,7 @@ export interface X64TranslationDiagnostic {
 }
 
 export interface X64TranslationResult {
-  wasm:Uint8Array;
+  wasm:Uint8Array<ArrayBuffer>;
   instructions:X64Instruction[];
   diagnostics:X64TranslationDiagnostic[];
 }
@@ -279,7 +279,7 @@ function emitWasm(
   instructions:X64Instruction[],
   code:Uint8Array,
   options:X64WasmTranslatorOptions,
-):Uint8Array {
+):Uint8Array<ArrayBuffer> {
   const blocks = makeBlocks(instructions);
   const blockByOffset = new Map<number,number>();
   for (const block of blocks) blockByOffset.set(block.start,block.id);
@@ -497,7 +497,7 @@ function emitInstruction(
       emitSignedGreaterEqual(out,blockByOffset,ins.target!,SF,OF,fallthrough);
       return;
     case 'jle_rel':
-      emitSignedLessEqual(out,blockByOffset,ins.target!,SF,OF);
+      emitSignedLessEqual(out,blockByOffset,ins.target!,ZF,SF,OF,fallthrough);
       return;
     case 'jg_rel':
       emitSignedGreater(out,blockByOffset,ins.target!,ZF,SF,OF,fallthrough);
@@ -564,12 +564,12 @@ function emitBinaryArithmetic(out:number[],dst:number,src:number,opcode:number):
   emit(out,0x20,...u32(dst),0x20,...u32(src),opcode,0x21,...u32(dst));
 }
 
-function setLogicFlags(out:number,reg:number):void {
+function setLogicFlags(out:number[],reg:number):void {
   emit(out,0x20,...u32(reg),0x50,0x21,...u32(ZF));
   emit(out,0x20,...u32(reg),0x42,0,0x53,0x21,...u32(SF));
 }
 
-function setAddFlags(out:number,a:number,b:number):void {
+function setAddFlags(out:number[],a:number,b:number):void {
   emit(out,0x20,...u32(a),0x20,...u32(b),0x7c,0x21,...u32(TMP));
   emit(out,0x20,...u32(TMP),0x50,0x21,...u32(ZF));
   emit(out,0x20,...u32(TMP),0x42,0,0x53,0x21,...u32(SF));
@@ -578,12 +578,12 @@ function setAddFlags(out:number,a:number,b:number):void {
   emit(out,0x20,...u32(a),0x20,...u32(b),0x85,0x42,-1,0x85,0x20,...u32(a),0x20,...u32(TMP),0x85,0x83,0x42,63,0x86,0x21,...u32(OF));
 }
 
-function setSubFlags(out:number,a:number,b:number):void {
+function setSubFlags(out:number[],a:number,b:number):void {
   emit(out,0x20,...u32(a),0x20,...u32(b),0x7d,0x21,...u32(TMP));
   setSubFlagsFromTemp(out,a,b);
 }
 
-function setSubFlagsFromTemp(out:number,a:number,b:number):void {
+function setSubFlagsFromTemp(out:number[],a:number,b:number):void {
   emit(out,0x20,...u32(TMP),0x50,0x21,...u32(ZF));
   emit(out,0x20,...u32(TMP),0x42,0,0x53,0x21,...u32(SF));
   emit(out,0x20,...u32(a),0x20,...u32(b),0x56,0x21,...u32(CF));
@@ -591,7 +591,7 @@ function setSubFlagsFromTemp(out:number,a:number,b:number):void {
   emit(out,0x20,...u32(a),0x20,...u32(b),0x85,0x20,...u32(a),0x20,...u32(TMP),0x85,0x83,0x42,63,0x86,0x21,...u32(OF));
 }
 
-function clearFlag(out:number,local:number):void {
+function clearFlag(out:number[],local:number):void {
   emit(out,0x41,0,0x21,...u32(local));
 }
 
@@ -650,7 +650,7 @@ function branchTo(out:number[],map:Map<number,number>,target:number):void {
   setPc(out,id);
   out.push(0x0c,0);
 }
-function setPc(out:number,id:number):void {
+function setPc(out:number[],id:number):void {
   emit(out,0x41,...u32(id),0x21,...u32(PC));
 }
 function isTerminator(ins:X64Instruction):boolean {
@@ -712,12 +712,12 @@ function signedLeb(value:number|bigint):number[] {
   }
   return out;
 }
-function concat(values:Uint8Array[]):Uint8Array {
+function concat(values:Array<Uint8Array | number[]>):Uint8Array<ArrayBuffer> {
   const length = values.reduce((n,v)=>n+v.length,0);
   const out = new Uint8Array(length);
   let p = 0;
   for (const value of values) {
-    out.set(value,p);
+    out.set(value instanceof Uint8Array ? value : new Uint8Array(value),p);
     p += value.length;
   }
   return out;

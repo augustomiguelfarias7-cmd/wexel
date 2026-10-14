@@ -16,10 +16,11 @@
  * Para clonar repositórios privados, injete um token via gitToken.
  */
 
-import type { ExecResult, WexelFileSystem } from "./index.js";
+import type { ExecResult } from "./index.js";
+import type { WexelFileSystemLike } from "./filesystem.js";
 
 export interface GitOptions {
-  fs:             WexelFileSystem;
+  fs:             WexelFileSystemLike;
   networkAllowed: boolean;
   fetcher?:       typeof fetch;
   /** Token pessoal (GitHub, GitLab, etc.) para repositórios privados. */

@@ -11,8 +11,23 @@ async function runtime() {
 describe("Wexel runtime", () => {
   it("instancia o Execution Core WebAssembly", async () => {
     const rt = await runtime();
-    expect(rt.core.exports.add(20, 22)).toBe(42);
+    expect(rt.core.exports.wexel_memory64_pointer_bits()).toBe(64);
+    expect(rt.core.exports.wexel_vfs_directory_count()).toBeGreaterThan(1);
     expect(rt.core.exports.memory).toBeInstanceOf(WebAssembly.Memory);
+  });
+  it("registra e executa artefatos WASM pelo gerenciador do runtime", async () => {
+    const rt = await runtime();
+    const core = await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url));
+    rt.fs.write("/tools/core.wasm", new Uint8Array(core));
+    const instance = await rt.loadModuleFromVfs("/tools/core.wasm", { name: "memory64-probe" });
+    const [artifact] = rt.artifacts.list();
+    expect(artifact.name).toBe("memory64-probe");
+    expect(artifact.source).toBe("/tools/core.wasm");
+    expect(artifact.exports).toContain("wexel_memory64_pointer_bits");
+    expect(rt.artifacts.invoke(artifact.id, "wexel_memory64_pointer_bits")).toBe(64);
+    expect(instance.exports.wexel_memory64_pointer_bits).toBeTypeOf("function");
+    expect(rt.artifacts.unload(artifact.id)).toBe(true);
+    expect(rt.artifacts.get(artifact.id)).toBeUndefined();
   });
   it("retorna erro de execução quando o módulo BusyBox não pode inicializar", async () => {
     const busyBox = await createBusyBoxRunner(async () => { throw new Error("artefato inválido"); }, "busybox.wasm");
@@ -22,7 +37,7 @@ describe("Wexel runtime", () => {
     const rt = await runtime();
     expect((await rt.shell.exec("pwd")).stdout).toBe("/home/wexel\n");
     expect((await rt.shell.exec("mkdir projeto")).exitCode).toBe(0);
-    expect((await rt.shell.exec("ls")).stdout).toContain("projeto/.dir");
+    expect((await rt.shell.exec("ls")).stdout).toContain("projeto");
   });
   it("inicializa uma VFS Linux-like e resolve ~ para o home virtual", async () => {
     const rt = await runtime();

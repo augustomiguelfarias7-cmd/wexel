@@ -1,4 +1,5 @@
 import { instantiateCore, type WexelCoreInstance } from "@wexel/core";
+import { WexelArtifactManager, type LoadArtifactOptions } from "./artifact-manager.js";
 import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
 import { V9Executor, type V9Document } from "./v9.js";
@@ -11,6 +12,9 @@ import { runNativeSource } from "./native-compiler.js";
 import { WexelLanguageExecutor, type CompiledLanguage } from "./language-executors.js";
 import { runMultiCVfs } from "./multic.js";
 import { WexelShell } from "./shell.js";
+import { WexelMemory64FileSystem, type WexelFileSystemLike } from "./filesystem.js";
+export { WexelFileSystem, WexelMemory64FileSystem, normalizeHome } from "./filesystem.js";
+export type { WexelFileSystemLike, WexelQuota } from "./filesystem.js";
 
 export type Language = "python" | "wasm" | "javascript" | "typescript" | string;
 
@@ -38,14 +42,14 @@ export interface WexelOptions {
   permissions?: WexelPermissions;
   storageQuotaBytes?: number;
   homeDirectory?: string;
-  /** VFS externo/persistente. Quando fornecido, o runtime não cria outro Map. */
-  fs?: WexelFileSystem;
+  /** VFS externo/persistente. Quando ausente, usa o VFS do core Memory64. */
+  fs?: WexelFileSystemLike;
   mode?: "load-only" | "run";
   initialMemoryPages?: number;
   maxMemoryPages?: number;
   coreBytes?: BufferSource;
   pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
-  pythonRunnerFactory?: (fs: WexelFileSystem) => NonNullable<WexelOptions["pythonRunner"]>;
+  pythonRunnerFactory?: (fs: WexelFileSystemLike) => NonNullable<WexelOptions["pythonRunner"]>;
   /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG, ver assets/wexeljs/edgejs.wasm). */
   wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
   bashRunner?: (args: string[]) => Promise<ExecResult> | ExecResult;
@@ -80,76 +84,14 @@ export interface WexelOptions {
   kernelOutput?: (listener: (chunk: string) => void) => () => void;
 }
 
-// ── WexelFileSystem ──────────────────────────────────────────────────────────
-
-export class WexelFileSystem {
-  private files = new Map<string, Uint8Array>();
-  private cwd: string;
-  private used = 0;
-  readonly home: string;
-
-  constructor(private readonly quotaBytes = 5 * 1024 * 1024 * 1024, homeDirectory = "/home/wexel") {
-    this.home = normalizeHome(homeDirectory);
-    this.cwd  = this.home;
-    for (const directory of ["/bin", "/home", this.home, "/tmp", "/usr", "/var", "/site-packages"]) {
-      this.files.set(`${directory}/.dir`, new Uint8Array());
-    }
-  }
-
-  pwd(): string { return this.cwd; }
-  cd(path: string): void {
-    const next = this.resolve(path);
-    if (next !== "/" && !this.files.has(`${next}/.dir`)) throw new Error(`Diretório inexistente: ${path}`);
-    this.cwd = next;
-  }
-  mkdir(path: string): void { if (path) this.files.set(`${this.resolve(path)}/.dir`, new Uint8Array()); }
-  touch(path: string): void { if (!this.exists(path)) this.write(path, new Uint8Array()); }
-  remove(path: string): void {
-    const target = this.resolve(path);
-    for (const key of [...this.files.keys()]) {
-      if (key === target || key.startsWith(`${target}/`)) { this.used -= this.files.get(key)?.byteLength ?? 0; this.files.delete(key); }
-    }
-  }
-  readText(path: string): string { return new TextDecoder().decode(this.read(path)); }
-  write(path: string, data: string | Uint8Array): void {
-    const value   = typeof data === "string" ? new TextEncoder().encode(data) : data;
-    const target  = this.resolve(path);
-    const previous = this.files.get(target)?.byteLength ?? 0;
-    if (this.used - previous + value.byteLength > this.quotaBytes) throw new Error(`Quota do filesystem excedida (${this.quotaBytes} bytes)`);
-    this.files.set(target, value);
-    this.used = this.used - previous + value.byteLength;
-  }
-  read(path: string): Uint8Array {
-    const value = this.files.get(this.resolve(path));
-    if (!value) throw new Error(`Arquivo inexistente: ${path}`);
-    return value;
-  }
-  list(path?: string): string[] {
-    const base = path === undefined ? this.cwd : this.resolve(path);
-    const prefix = base === "/" ? "/" : `${base}/`;
-    return [...this.files.keys()].filter((x) => x.startsWith(prefix)).map((x) => x.slice(prefix.length)).filter((x) => x && x !== ".dir");
-  }
-  get quota(): { usedBytes: number; limitBytes: number } { return { usedBytes: this.used, limitBytes: this.quotaBytes }; }
-  exists(path: string): boolean { return this.files.has(this.resolve(path)) || this.files.has(`${this.resolve(path)}/.dir`); }
-  snapshot(): Array<{ path: string; data: Uint8Array }> {
-    return [...this.files.entries()].filter(([path]) => !path.endsWith("/.dir")).map(([path, data]) => ({ path, data: data.slice() }));
-  }
-  private resolve(path: string): string {
-    const expanded = path === "~" || path.startsWith("~/") ? `${this.home}${path.slice(1)}` : path;
-    const raw = expanded.startsWith("/") ? expanded : `${this.cwd}/${expanded}`;
-    const parts: string[] = [];
-    for (const part of raw.split("/")) { if (!part || part === ".") continue; if (part === "..") parts.pop(); else parts.push(part); }
-    return `/${parts.join("/")}`.replace(/\/$/, "") || "/";
-  }
-}
-
 // ── WexelRuntime ──────────────────────────────────────────────────────────────
 
 export class WexelRuntime {
   /** undefined ate que options.kernel + options.kernelOutput sejam fornecidos (kernel ja precisa estar de pe). */
   readonly shell?:      WexelShell;
   readonly permissions: Required<WexelPermissions>;
-  readonly fs:          WexelFileSystem;
+  readonly fs:          WexelFileSystemLike;
+  readonly artifacts:   WexelArtifactManager;
   readonly mode:        "load-only" | "run";
   readonly buzz       = new BuzzBox();
   readonly packages:    PythonPackageManager;
@@ -169,7 +111,7 @@ export class WexelRuntime {
 
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.mode         = options.mode ?? "run";
-    this.fs           = options.fs ?? new WexelFileSystem(options.storageQuotaBytes, options.homeDirectory);
+    this.fs           = options.fs ?? new WexelMemory64FileSystem(core, options.storageQuotaBytes, options.homeDirectory);
     this.pythonRunner = options.pythonRunner ?? options.pythonRunnerFactory?.(this.fs);
     this._wexelJsRunner = options.wexelJsRunner;
     this.bashRunner   = options.bashRunner;
@@ -179,6 +121,7 @@ export class WexelRuntime {
     this.nativeCliBytes = options.nativeCliBytes;
     this.packages     = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl, fetcher: this.networkFetch });
     this.permissions  = { network: false, storage: true, files: false, modules: true, ...options.permissions };
+    this.artifacts    = new WexelArtifactManager(() => this.permissions.modules);
     if (options.kernel && options.kernelOutput) {
       this.shell = new WexelShell(options.kernel, options.kernelOutput);
     }
@@ -308,12 +251,16 @@ export class WexelRuntime {
     const code  = new TextDecoder().decode(bytes instanceof ArrayBuffer ? bytes : (bytes as ArrayBufferView).buffer);
     return this.exec({ ...request, code });
   }
-  async loadModule(source: string | BufferSource): Promise<WebAssembly.Instance> {
+  async loadModule(source: string | BufferSource, options: LoadArtifactOptions = {}): Promise<WebAssembly.Instance> {
     if (!this.permissions.modules) throw new Error("Permissão de módulos negada");
-    const bytes    = typeof source === "string" ? await fetch(source).then((r) => r.arrayBuffer()) : source;
-    const instance = (await WebAssembly.instantiate(bytes, {})).instance;
-    this.buzz.emit("module:loaded", { source: typeof source === "string" ? source : "buffer" });
-    return instance;
+    const artifact = await this.artifacts.load(source, options);
+    this.buzz.emit("module:loaded", { source: artifact.source, id: artifact.id, name: artifact.name });
+    return artifact.instance;
+  }
+  async loadModuleFromVfs(path: string, options: LoadArtifactOptions = {}): Promise<WebAssembly.Instance> {
+    if (!this.permissions.modules) throw new Error("Permissão de módulos negada");
+    const bytes = new Uint8Array(this.fs.read(path));
+    return this.loadModule(bytes, { ...options, name: options.name ?? path, sourceLabel: path });
   }
   createWebDocument(document: V9Document): string { return this.v9.createDocument(document); }
   async loadNativeExtension(manifest: NativeExtensionManifest, source: BufferSource): Promise<NativeExtension> {
@@ -422,13 +369,6 @@ function scriptLanguage(path: string): "javascript" | "typescript" | undefined {
   return undefined;
 }
 
-function normalizeHome(path: string): string {
-  if (!path.startsWith("/")) throw new Error("O diretório home deve ser um caminho absoluto.");
-  const normalized = path.replace(/\/+$/, "");
-  if (normalized === "/" || normalized.includes("/../") || normalized.endsWith("/..")) throw new Error("Diretório home inválido.");
-  return normalized;
-}
-
 // ── re-exports ────────────────────────────────────────────────────────────────
 
 export { BuzzBox }          from "./buzz-box.js";
@@ -438,6 +378,7 @@ export { V9Executor, type V9Document, type V9RenderResult } from "./v9.js";
 export { NativeExtensionRegistry, type NativeExtensionManifest, type NativeExtension } from "./native-extensions.js";
 export { compileNativeSource, runNativeSource, type CompileOptions, type CompileResult, type RunOptions, type RunResult } from "./native-compiler.js";
 export { WexelLanguageExecutor, type LanguageExecutorOptions, type CompiledLanguage } from "./language-executors.js";
+export { WexelArtifactManager, type LoadArtifactOptions, type WexelLoadedArtifact, type WexelArtifactSummary } from "./artifact-manager.js";
 export { parseMultiC, runMultiCFile, runMultiCSource, runMultiCVfs, type MultiCOptions, type MultiCResult, type MultiCSection, type MultiCLanguage } from "./multic.js";
 export { RustV, type RustVOptions } from "./rustv.js";
 export { WexelPersistentFS, WexelIDBFS, type PersistentFSOptions } from "./persistent-fs.js";

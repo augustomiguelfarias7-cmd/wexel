@@ -1,13 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
-import wabtInit from "wabt";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
-const root = path.resolve(new URL("..", import.meta.url).pathname);
-const wabt = await wabtInit();
-const watPath = path.join(root, "packages/wexel-core/src/core.wat");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sourceDir = path.join(root, "packages/wexel-core/memory64");
+const buildScript = path.join(sourceDir, "tools/build-memory64.sh");
+const buildDir = path.join(sourceDir, "build-memory64");
+const builtWasm = path.join(buildDir, "wexel-core-memory64.wasm");
 const outPath = path.join(root, "packages/wexel-core/dist/core.wasm");
+const binaryOnPath = (...candidates) => candidates.find((candidate) => spawnSync("bash", ["-lc", `command -v ${candidate}`], { stdio: "ignore" }).status === 0);
+const env = { ...process.env };
+env.CLANGXX ??= binaryOnPath("clang++", "clang++-19", "clang++-18", "clang++-17", "clang++-16") ?? "clang++";
+env.WASM_LD ??= binaryOnPath("wasm-ld", "wasm-ld-19", "wasm-ld-18", "wasm-ld-17", "wasm-ld-16") ?? "wasm-ld";
+const result = spawnSync("bash", [buildScript], { cwd: sourceDir, env, stdio: "inherit" });
+if (result.status !== 0) throw new Error(`Memory64 build failed (exit ${result.status ?? "signal"}). Install Clang/LLD with wasm64 support or set CLANGXX and WASM_LD.`);
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
-const parsed = wabt.parseWat(watPath, fs.readFileSync(watPath, "utf8"));
-fs.writeFileSync(outPath, Buffer.from(parsed.toBinary({}).buffer));
-parsed.destroy();
-console.log(`Wrote ${outPath}`);
+fs.copyFileSync(builtWasm, outPath);
+console.log(`Wrote Memory64 core ${outPath}`);

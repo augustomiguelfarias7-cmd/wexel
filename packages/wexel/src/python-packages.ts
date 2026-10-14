@@ -1,5 +1,5 @@
 import { unzipSync } from "fflate";
-import type { WexelFileSystem } from "./index.js";
+import type { WexelFileSystemLike } from "./filesystem.js";
 
 export interface PackageFile {
   filename: string;
@@ -20,7 +20,7 @@ export interface PackageInstallResult {
 }
 
 export interface PackageManagerOptions {
-  fs: WexelFileSystem;
+  fs: WexelFileSystemLike;
   indexUrl?: string;
   target?: string;
   fetcher?: typeof fetch;
