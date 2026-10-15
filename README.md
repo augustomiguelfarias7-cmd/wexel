@@ -191,6 +191,8 @@ HTML remains part of the V9 environment rather than the Wexel.js runtime.
 
 ## Virtual Filesystem
 
+The correct acronym used throughout Wexel is **VFS** (Virtual File System).
+
 Wexel provides a Linux-like virtual filesystem.
 
 A runtime starts with directories such as:
