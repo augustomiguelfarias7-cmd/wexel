@@ -704,10 +704,10 @@ compiled to WebAssembly running an actual BusyBox shell inside
 toolchain support. See `packages/wexel/assets/README-4.0.md` for details on
 the new artifacts and `CHANGELOG.md`-style notes above for prior versions.
 
-Wexel 3.0 introduced the Deno runtime integration, NodeExecution sandbox manager, WebPink networking layer, Linux-like VFS improvements and associated package/export updates.
-
 ## License
 
 Wexel is licensed under the Apache License 2.0.
 
 See [`LICENSE.md`](./LICENSE.md) for the complete license text.
+
+wexel 5.0 in 6 months 
