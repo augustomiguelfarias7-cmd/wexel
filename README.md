@@ -363,11 +363,12 @@ repository's current Node.js implementation is
 `createWasiPythonRunner` in `packages/wexel/src/node-cpython.ts`, and the
 working example is `examples/05-cpython-real-node.mjs`.
 
-**Runtime note:** the bundled `python.wasm` file is the CPython module, not a
-complete WASI host by itself. The current Node.js adapter launches Wasmtime to
-provide the WASI environment and connect the module to its files. Therefore,
-the current adapter still requires Wasmtime to be installed; simply having the
-`.wasm` file does not remove that runtime dependency. The placeholder example
+The Node.js adapter now instantiates the bundled module through JavaScript's
+`WebAssembly` API and the `@bjorn3/browser_wasi_shim` WASI host already listed
+as a Wexel dependency. It does not spawn an external process and does not
+require a separate Wasmtime installation. The host shim implements a subset of
+WASI Preview 1, so compatibility with the bundled CPython build and its system
+calls must be verified by running the example and tests. The placeholder
 `examples/03-cpython-adapter.mjs` does not run CPython and should not be used
 as the real integration example.
 
