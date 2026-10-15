@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { dirname, join } from "node:path";
 import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory, Directory, type Inode } from "@bjorn3/browser_wasi_shim";
 import type { ExecResult } from "./index.js";
 import type { WexelFileSystemLike } from "./filesystem.js";
@@ -48,7 +48,7 @@ function addFile(root: Directory, path: string, bytes: Uint8Array): void {
  */
 export function createWasiPythonRunner(options: WasiPythonOptions) {
   return async (code: string, args: string[] = []): Promise<ExecResult> => {
-    const pythonRoot = options.pythonRoot ?? join(options.pythonWasm, "..");
+    const pythonRoot = options.pythonRoot ?? dirname(options.pythonWasm);
     const root = await loadDirectory(pythonRoot);
     const work = new Directory(new Map());
     addFile(work, "main.py", new TextEncoder().encode(code));
