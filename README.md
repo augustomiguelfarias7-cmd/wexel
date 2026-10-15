@@ -354,24 +354,22 @@ const sandbox = await execution.createSandbox({
 
 ## CPython and WASI
 
-Wexel includes a CPython WASI integration for Node environments.
+Wexel already includes the CPython 3.14.7 WebAssembly artifact under
+`packages/wexel/assets/cpython-3.14.7/`; users do **not** need to create or
+compile a second CPython module just to use the bundled integration.
 
-The Node adapter can execute CPython WebAssembly through Wasmtime while connecting the Python runtime to Wexel's virtual filesystem.
+The runtime exposes the `pythonRunner` / `pythonRunnerFactory` hooks. The
+repository's current Node.js implementation is
+`createWasiPythonRunner` in `packages/wexel/src/node-cpython.ts`, and the
+working example is `examples/05-cpython-real-node.mjs`.
 
-```ts
-import { createWasiPythonRunner } from "wexel/node";
-
-const runPython = createWasiPythonRunner({
-  pythonWasm: "/path/to/python.wasm",
-  pythonRoot: "/path/to/python-root",
-  wasmtime: "wasmtime",
-  fs: runtime.fs,
-});
-
-console.log(
-  await runPython("print(2 + 40)"),
-);
-```
+**Runtime note:** the bundled `python.wasm` file is the CPython module, not a
+complete WASI host by itself. The current Node.js adapter launches Wasmtime to
+provide the WASI environment and connect the module to its files. Therefore,
+the current adapter still requires Wasmtime to be installed; simply having the
+`.wasm` file does not remove that runtime dependency. The placeholder example
+`examples/03-cpython-adapter.mjs` does not run CPython and should not be used
+as the real integration example.
 
 ## Python Packages
 
