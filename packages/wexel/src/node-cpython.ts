@@ -1,56 +1,94 @@
-import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
+import { WASI, File, OpenFile, ConsoleStdout, PreopenDirectory, Directory, type Inode } from "@bjorn3/browser_wasi_shim";
 import type { ExecResult } from "./index.js";
 import type { WexelFileSystemLike } from "./filesystem.js";
 
 export interface WasiPythonOptions {
+  /** Caminho do artefato CPython WASI já empacotado com o Wexel. */
   pythonWasm: string;
-  /** Diretório contendo Lib/ e demais arquivos do CPython WASI, montado como /. */
+  /** Diretório contendo Lib/ e os demais arquivos da distribuição CPython. */
   pythonRoot?: string;
-  wasmtime?: string;
   cwd?: string;
   env?: Record<string, string>;
   fs?: WexelFileSystemLike;
 }
 
-/** Executa o CPython 3.14.7 WASI real no backend Node.js via Wasmtime. */
+type TreeEntry = Map<string, Inode>;
+
+async function loadDirectory(path: string): Promise<Directory> {
+  const contents: TreeEntry = new Map();
+  for (const name of await readdir(path)) {
+    const fullPath = join(path, name);
+    const info = await stat(fullPath);
+    if (info.isDirectory()) contents.set(name, await loadDirectory(fullPath));
+    else if (info.isFile()) contents.set(name, new File(await readFile(fullPath)));
+  }
+  return new Directory(contents);
+}
+
+function addFile(root: Directory, path: string, bytes: Uint8Array): void {
+  const parts = path.split("/").filter(Boolean);
+  let current = root;
+  for (const part of parts.slice(0, -1)) {
+    let next = current.contents.get(part);
+    if (!(next instanceof Directory)) {
+      next = new Directory(new Map());
+      current.contents.set(part, next);
+    }
+    current = next;
+  }
+  current.contents.set(parts[parts.length - 1], new File(bytes));
+}
+
+/**
+ * Executa o artefato CPython WASI diretamente com WebAssembly + o host WASI
+ * JavaScript já incluído no Wexel. Não inicia processos externos nem requer
+ * Wasmtime instalado no sistema.
+ */
 export function createWasiPythonRunner(options: WasiPythonOptions) {
-  const wasmtime = options.wasmtime ?? "wasmtime";
   return async (code: string, args: string[] = []): Promise<ExecResult> => {
-    const dir = await mkdtemp(join(tmpdir(), "wexel-python-"));
-    const script = join(dir, "main.py");
-    await writeFile(script, code, "utf8");
     const pythonRoot = options.pythonRoot ?? join(options.pythonWasm, "..");
+    const root = await loadDirectory(pythonRoot);
+    const work = new Directory(new Map());
+    addFile(work, "main.py", new TextEncoder().encode(code));
+    root.contents.set("work", work);
+
+    const sitePackages = new Directory(new Map());
     if (options.fs) {
       for (const file of options.fs.snapshot()) {
-        const relative = file.path.replace(/^\/site-packages\//, "").replace(/^\//, "");
-        const target = join(dir, "site-packages", relative);
-        await mkdir(join(target, ".."), { recursive: true });
-        await writeFile(target, file.data);
+        const path = file.path.replace(/^\/?site-packages\//, "").replace(/^\//, "");
+        if (path) addFile(sitePackages, path, new Uint8Array(file.data));
       }
     }
-    return await new Promise((resolve, reject) => {
-      const child = spawn(wasmtime, ["run", "--wasm", "max-wasm-stack=16777216", "--dir", `${dir}::/work`, "--dir", `${pythonRoot}::/`, "--env", "PYTHONPATH=/Lib:/site-packages", "--dir", `${dir}/site-packages::/site-packages`, options.pythonWasm, "/work/main.py", ...args], {
-        cwd: options.cwd ?? dir,
-        env: { ...process.env, ...options.env },
+    root.contents.set("site-packages", sitePackages);
+
+    let stdout = "";
+    let stderr = "";
+    const stdoutFd = ConsoleStdout.lineBuffered((line) => { stdout += line + "\n"; });
+    const stderrFd = ConsoleStdout.lineBuffered((line) => { stderr += line + "\n"; });
+    const wasi = new WASI(
+      ["python.wasm", "/work/main.py", ...args],
+      Object.entries({ ...process.env, ...options.env, PYTHONPATH: "/Lib:/site-packages" })
+        .filter((entry): entry is [string, string] => entry[1] !== undefined)
+        .map(([key, value]) => `${key}=${value}`),
+      [new OpenFile(new File([])), stdoutFd, stderrFd, new PreopenDirectory("/", root.contents)],
+    );
+
+    try {
+      const bytes = await readFile(options.pythonWasm);
+      const module = await WebAssembly.compile(bytes);
+      const instance = await WebAssembly.instantiate(module, {
+        wasi_snapshot_preview1: wasi.wasiImport,
       });
-      const stdout: Buffer[] = [];
-      const stderr: Buffer[] = [];
-      let settled = false;
-      const finish = (result: ExecResult) => {
-        if (settled) return;
-        settled = true;
-        void rm(dir, { recursive: true, force: true });
-        resolve(result);
+      const exitCode = wasi.start(instance);
+      return { stdout, stderr, exitCode };
+    } catch (error) {
+      return {
+        stdout,
+        stderr: stderr + (error instanceof Error ? error.message : String(error)) + "\n",
+        exitCode: 1,
       };
-      child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
-      child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
-      child.on("error", (error) => finish({ stdout: Buffer.concat(stdout).toString(), stderr: `${error.message}\n`, exitCode: 127 }));
-      child.on("close", (exitCode) => {
-        finish({ stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString(), exitCode: exitCode ?? 1 });
-      });
-    });
+    }
   };
 }
