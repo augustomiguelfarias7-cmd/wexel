@@ -53,10 +53,30 @@ void coalesce_free_list() {
         }
     }
 }
+// Accept only exact payload starts of currently allocated physical blocks.
+// Walking the arena also avoids trusting user-controlled bytes as a BlockHeader.
+BlockHeader* find_allocated_block(u64 pointer) {
+    u64 cursor = arena_start;
+    while (cursor < arena_next) {
+        if (arena_next - cursor < sizeof(BlockHeader)) return nullptr;
+        auto* block = reinterpret_cast<BlockHeader*>(cursor);
+        const u64 available = arena_next - cursor - sizeof(BlockHeader);
+        const u64 size = payload_size(block);
+        if (size == 0 || size > available) return nullptr;
+        const u64 payload = cursor + sizeof(BlockHeader);
+        const u64 end = payload + size;
+        if (pointer == payload) return is_free(block) ? nullptr : block;
+        if (pointer < end) return nullptr;
+        cursor = end;
+    }
+    return nullptr;
+}
 }
 extern "C" u32 wexel_memory64_pointer_bits() { return static_cast<u32>(sizeof(void*) * 8U); }
 extern "C" u32 wexel_memory64_set_limit(u64 limit_bytes) {
-    if (limit_bytes < current_bytes() || limit_bytes > kCompiledMaximum || limit_bytes == 0) return 0;
+    // Linear memory grows in whole 64 KiB pages, so the configured cap must too.
+    if (limit_bytes == 0 || limit_bytes % kPageSize != 0 ||
+        limit_bytes < current_bytes() || limit_bytes > kCompiledMaximum) return 0;
     memory_limit = limit_bytes;
     return 1;
 }
@@ -107,10 +127,11 @@ extern "C" u64 wexel_memory64_alloc(u64 requested_size) {
 }
 extern "C" void wexel_memory64_free(u64 pointer) {
     initialize_allocator();
-    if (!allocator_ready || pointer < arena_start + sizeof(BlockHeader) || pointer >= arena_next || (pointer & (kAlignment - 1)) != 0) return;
-    auto* block = reinterpret_cast<BlockHeader*>(pointer - sizeof(BlockHeader));
+    if (!allocator_ready || pointer < arena_start + sizeof(BlockHeader) ||
+        pointer >= arena_next || (pointer & (kAlignment - 1)) != 0) return;
+    auto* block = find_allocated_block(pointer);
+    if (!block) return;
     const u64 size = payload_size(block);
-    if (is_free(block) || size == 0 || size > arena_next - pointer) return;
     block->size_and_flags = size | kFreeFlag;
     BlockHeader** link = &free_head;
     while (*link && reinterpret_cast<u64>(*link) < reinterpret_cast<u64>(block)) link = &(*link)->next_free;
