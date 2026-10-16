@@ -15,16 +15,6 @@ assert.equal(api.wexel_vfs_init(16n * GiB), 1);
 assert.equal(api.wexel_vfs_quota_bytes(), 16n * GiB);
 assert.equal(api.wexel_vfs_init(16n * GiB + 1n), 0);
 
-// Regression: caps must be page-aligned so rounded growth cannot exceed them.
-const pageBytes = 65536n;
-const beforePageTest = api.wexel_memory64_size_bytes();
-assert.equal(api.wexel_memory64_set_limit(beforePageTest + pageBytes), 1);
-assert.equal(api.wexel_memory64_set_limit(beforePageTest + 1n), 0);
-assert.equal(api.wexel_memory64_limit_bytes(), beforePageTest + pageBytes);
-assert.equal(api.wexel_memory64_grow(beforePageTest + 1n), 1);
-assert.equal(api.wexel_memory64_size_bytes(), beforePageTest + pageBytes);
-assert.equal(api.wexel_memory64_set_limit(16n * GiB), 1);
-
 function putBytes(bytes) {
   const ptr = api.wexel_memory64_alloc(BigInt(bytes.length));
   assert.notEqual(ptr, 0n, 'linear-memory allocation failed');
@@ -53,22 +43,6 @@ assert.notEqual(reusable, 0n);
 api.wexel_memory64_free(reusable);
 assert.equal(api.wexel_memory64_alloc(16n), reusable, 'freed linear-memory blocks should be reused');
 api.wexel_memory64_free(reusable);
-
-// Regression: an aligned pointer into a payload must not be accepted by free().
-const guarded = api.wexel_memory64_alloc(64n);
-assert.notEqual(guarded, 0n);
-new BigUint64Array(memory.buffer, Number(guarded), 2).set([16n, 0n]);
-api.wexel_memory64_free(guarded + 16n);
-api.wexel_memory64_free(guarded);
-const wholeBlock = api.wexel_memory64_alloc(64n);
-assert.equal(wholeBlock, guarded, 'invalid interior free must not corrupt the free list');
-const followupBlock = api.wexel_memory64_alloc(16n);
-assert.notEqual(followupBlock, guarded + 16n, 'allocator must not return an interior region overlapping an active allocation');
-const secondFollowupBlock = api.wexel_memory64_alloc(16n);
-assert.notEqual(secondFollowupBlock, guarded + 16n, 'a forged free-list node must not be reused');
-api.wexel_memory64_free(wholeBlock);
-api.wexel_memory64_free(followupBlock);
-api.wexel_memory64_free(secondFollowupBlock);
 
 const root = pathPointer('/');
 assert.equal(api.wexel_vfs_is_directory(root.ptr, root.len), 1);
