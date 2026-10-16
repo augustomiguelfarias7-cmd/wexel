@@ -64,8 +64,11 @@ const wholeBlock = api.wexel_memory64_alloc(64n);
 assert.equal(wholeBlock, guarded, 'invalid interior free must not corrupt the free list');
 const followupBlock = api.wexel_memory64_alloc(16n);
 assert.notEqual(followupBlock, guarded + 16n, 'allocator must not return an interior region overlapping an active allocation');
+const secondFollowupBlock = api.wexel_memory64_alloc(16n);
+assert.notEqual(secondFollowupBlock, guarded + 16n, 'a forged free-list node must not be reused');
 api.wexel_memory64_free(wholeBlock);
 api.wexel_memory64_free(followupBlock);
+api.wexel_memory64_free(secondFollowupBlock);
 
 const root = pathPointer('/');
 assert.equal(api.wexel_vfs_is_directory(root.ptr, root.len), 1);
