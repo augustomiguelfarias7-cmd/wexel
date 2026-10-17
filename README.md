@@ -28,6 +28,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - Isolated backend sandboxes through `NodeExecution`
 - Per-sandbox permissions and storage quotas
 - Controlled networking through WebPink
+- **WebPink Netlify:** JSON-based URL allow/deny rules, native local/private-host blocking, HTTP redirect blocking, and request/response limits. See [`docs/webpink-netlify.md`](docs/webpink-netlify.md).
 - Internal sandbox-to-sandbox messaging
 - CPython WASI integration
 - BusyBox WASM integration
