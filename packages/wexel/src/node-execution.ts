@@ -45,13 +45,11 @@ export interface BackendSandbox {
 
 export class NodeExecution {
   private readonly sandboxes = new Map<string, BackendSandbox>();
-  private readonly busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>;
   readonly webPink?: WebPink;
   /** Cada sandbox recebe seu próprio boot/kernel Linux-WASM. */
   private readonly kernelBoots = new Map<string, Awaited<ReturnType<typeof bootKernel>>>();
 
-  private constructor(private readonly options: NodeExecutionOptions, busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>, webPink?: WebPink) {
-    this.busyBox = busyBox;
+  private constructor(private readonly options: NodeExecutionOptions, webPink?: WebPink) {
     this.webPink = webPink;
   }
 
@@ -60,15 +58,8 @@ export class NodeExecution {
     if (busyBoxOptions && !busyBoxOptions.wasmSource && !busyBoxOptions.wasmUrl) {
       throw new Error("Node Execution requer busyBox.wasmSource ou busyBox.wasmUrl.");
     }
-    const busyBox = busyBoxOptions
-      ? await createBusyBoxRunner(
-          busyBoxOptions.factory,
-          busyBoxOptions.wasmSource ?? busyBoxOptions.wasmUrl!,
-        )
-      : undefined;
     return new NodeExecution(
       options,
-      busyBox,
       options.webPink ? new WebPink(options.webPink) : undefined,
     );
   }
