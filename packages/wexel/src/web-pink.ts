@@ -131,13 +131,15 @@ export class WebPink {
     const denied = matchesHost(host, policy?.denyHosts) || matchesUrl(url, policy?.denyUrls);
     if (denied) throw new Error(`Web Pink Netlify bloqueou destino explicitamente negado: ${url.hostname}`);
 
-    const configuredHostLists = [this.options.allowHosts, sandbox.allowHosts, policy?.allowHosts].filter(
+    const hostConstraints = [this.options.allowHosts, sandbox.allowHosts].filter(
       (list): list is string[] => Array.isArray(list),
     );
-    const hostAllowed = configuredHostLists.every((list) => matchesHost(host, list));
+    const hostAllowedByHostLists = hostConstraints.every((list) => matchesHost(host, list));
     const urlAllowed = matchesUrl(url, policy?.allowUrls);
-    if (!hostAllowed || (policy?.allowHosts && !matchesHost(host, policy.allowHosts))) {
-      throw new Error(`Web Pink bloqueou host fora da lista permitida: ${url.hostname}`);
+    const policyHasAllowRules = Boolean(policy?.allowHosts?.length || policy?.allowUrls?.length);
+    const policyAllows = !policyHasAllowRules || matchesHost(host, policy?.allowHosts) || urlAllowed;
+    if (!hostAllowedByHostLists || !policyAllows) {
+      throw new Error(`Web Pink bloqueou host/URL fora da lista permitida: ${url.hostname}`);
     }
 
     // Hosts internos são negados nativamente, mesmo quando a política é ampla.
