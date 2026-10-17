@@ -117,7 +117,9 @@ export class WebPink {
   send(from: string, to: string, payload: unknown): void {
     const sender = this.requireClient(from);
     const receiver = this.requireClient(to);
-    if (sender.policy.allowInternal !== true) throw new Error(`Web Pink bloqueou comunicação interna para ${from}; habilite allowInternal explicitamente.`);
+    if (sender.policy.allowInternal !== true || receiver.policy.allowInternal !== true) {
+      throw new Error("Web Pink bloqueou comunicação interna: remetente e destinatário devem habilitar allowInternal.");
+    }
     receiver.deliver({ from, to, payload, timestamp: Date.now() });
   }
 
