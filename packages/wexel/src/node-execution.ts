@@ -45,29 +45,12 @@ export interface BackendSandbox {
 
 export class NodeExecution {
   private readonly sandboxes = new Map<string, BackendSandbox>();
-  private readonly busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>;
   readonly webPink?: WebPink;
-  /**
-   * Kernel Linux-WASM compartilhado entre sandboxes (bootado uma unica vez,
-   * de forma preguicosa). NAO e isolado por sandbox ainda - e uma
-   * simplificacao conhecida; isolamento real (um kernel por sandbox) fica
-   * pro proximo passo.
-   */
-  private kernelBoot?: ReturnType<typeof bootKernel>;
+  /** Cada sandbox recebe seu próprio boot/kernel Linux-WASM. */
+  private readonly kernelBoots = new Map<string, Awaited<ReturnType<typeof bootKernel>>>();
 
-  private constructor(
-    private readonly options: NodeExecutionOptions,
-    busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>,
-    webPink?: WebPink,
-  ) {
-    this.busyBox = busyBox;
+  private constructor(private readonly options: NodeExecutionOptions, webPink?: WebPink) {
     this.webPink = webPink;
-  }
-
-  private getKernel() {
-    if (!this.options.linuxKernel) return undefined;
-    if (!this.kernelBoot) this.kernelBoot = bootKernel(this.options.linuxKernel);
-    return this.kernelBoot;
   }
 
   static async create(options: NodeExecutionOptions): Promise<NodeExecution> {
@@ -75,15 +58,8 @@ export class NodeExecution {
     if (busyBoxOptions && !busyBoxOptions.wasmSource && !busyBoxOptions.wasmUrl) {
       throw new Error("Node Execution requer busyBox.wasmSource ou busyBox.wasmUrl.");
     }
-    const busyBox = busyBoxOptions
-      ? await createBusyBoxRunner(
-          busyBoxOptions.factory,
-          busyBoxOptions.wasmSource ?? busyBoxOptions.wasmUrl!,
-        )
-      : undefined;
     return new NodeExecution(
       options,
-      busyBox,
       options.webPink ? new WebPink(options.webPink) : undefined,
     );
   }
@@ -93,9 +69,28 @@ export class NodeExecution {
     if (this.sandboxes.has(id)) throw new Error(`Sandbox já existe: ${id}`);
 
     const webPink = this.webPink?.createClient(id, options.webPink);
-    const sandboxFetcher = webPink?.fetch.bind(webPink) as typeof fetch | undefined;
+    // Toda chamada de rede do runtime passa por este wrapper, mesmo quando
+    // WebPink não foi configurado. Sem isso, o fallback global fetch ignoraria
+    // permissions.network e permitiria rede por caminhos como curl/PyPI.
+    const sandboxFetcher: typeof fetch = (async (input, init) => {
+      if (options.permissions?.network !== true) {
+        throw new Error("Permissão de rede negada para esta sandbox.");
+      }
+      if (webPink) return webPink.fetch(input, init);
+      return fetch(input, init);
+    }) as typeof fetch;
 
-    const kernelBoot = await this.getKernel();
+    // Não reutilizar a instância do kernel: cada sandbox precisa de estado isolado.
+    const kernelBoot = this.options.linuxKernel
+      ? await bootKernel(this.options.linuxKernel)
+      : undefined;
+
+    const sandboxBusyBox = this.options.busyBox
+      ? await createBusyBoxRunner(
+          this.options.busyBox.factory,
+          this.options.busyBox.wasmSource ?? this.options.busyBox.wasmUrl!,
+        )
+      : undefined;
 
     const runtime = await Wexel.create({
       coreBytes: this.options.coreBytes,
@@ -111,8 +106,8 @@ export class NodeExecution {
         : this.options.pythonWasi === false
           ? undefined
           : nodeWasiPythonRunnerFactory(this.options.pythonWasi ?? {}),
-      bashRunner: this.busyBox
-        ? async (args) => this.busyBox!.run({ args: ["busybox", "sh", ...args] })
+      bashRunner: sandboxBusyBox
+        ? async (args) => sandboxBusyBox.run({ args: ["busybox", "sh", ...args] })
         : undefined,
       networkFetch: sandboxFetcher,
       nativeCliBytes: this.options.nativeCliBytes,
@@ -120,6 +115,7 @@ export class NodeExecution {
     });
 
     const sandbox = { id, runtime, createdAt: Date.now(), webPink };
+    if (kernelBoot) this.kernelBoots.set(id, kernelBoot);
     this.sandboxes.set(id, sandbox);
     return sandbox;
   }
@@ -134,12 +130,14 @@ export class NodeExecution {
 
   destroySandbox(id: string): boolean {
     this.webPink?.removeClient(id);
+    this.kernelBoots.delete(id);
     return this.sandboxes.delete(id);
   }
 
   async dispose(): Promise<void> {
     for (const id of this.sandboxes.keys()) this.webPink?.removeClient(id);
     this.sandboxes.clear();
+    this.kernelBoots.clear();
   }
 }
 
