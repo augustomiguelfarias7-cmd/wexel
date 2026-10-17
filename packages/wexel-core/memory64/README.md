@@ -31,7 +31,7 @@ Requirements: Clang/LLVM and LLD with `wasm64-unknown-unknown`/Memory64 support,
 ## Memory and filesystem behavior
 
 - Compiled maximum: 16 GiB of WebAssembly linear-memory address space; initial memory is 16 MiB and the maximum is not pre-reserved. This is not a cap on the host PC's RAM and does not reserve 16 GiB of physical RAM.
-- Default logical file-payload quota: 5 GiB; configurable to at most 16 GiB. Metadata and allocator overhead also consume linear memory, so payload capacity is lower than the configured quota.
+- Default logical file-payload quota: follows the core artifact's configured linear-memory limit (16 GiB by default); callers may configure a smaller quota up to that limit. Metadata and allocator overhead also consume linear memory, so the VFS may run out of allocatable memory before reaching the logical payload quota.
 - Removed/overwritten allocations are reusable. The underlying WebAssembly memory does not shrink after it grows.
 - Root (`/`) exists implicitly. The host adapter creates missing parent directories. The low-level VFS exports immediate-child names; the high-level `list()` returns descendants relative to the requested directory.
 - Paths are UTF-8 absolute normalized paths; this is a Linux-like hierarchy, not full POSIX/Linux filesystem compatibility.
