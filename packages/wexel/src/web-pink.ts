@@ -153,10 +153,41 @@ export class WebPink {
   }
 
   private async limitResponse(response: Response): Promise<Response> {
-    if (!this.options.maxResponseBytes) return response;
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > this.options.maxResponseBytes) {
-      throw new Error(`Web Pink excedeu limite de resposta (${this.options.maxResponseBytes} bytes)`);
+    const maxBytes = this.options.maxResponseBytes;
+    if (!maxBytes || !response.body) return response;
+
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      await response.body.cancel();
+      throw new Error(`Web Pink excedeu limite de resposta (${maxBytes} bytes)`);
+    }
+
+    // Ler em blocos evita carregar uma resposta ilimitada inteira na memória
+    // antes de descobrir que excedeu o limite configurado.
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel();
+          throw new Error(`Web Pink excedeu limite de resposta (${maxBytes} bytes)`);
+        }
+        chunks.push(value);
+      }
+    } catch (error) {
+      try { await reader.cancel(); } catch { /* fluxo já encerrado */ }
+      throw error;
+    }
+
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
     }
     return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
   }
