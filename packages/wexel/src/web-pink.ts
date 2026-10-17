@@ -92,8 +92,12 @@ export class WebPink {
     if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`Web Pink bloqueou protocolo: ${url.protocol}`);
     if (url.username || url.password) throw new Error("Web Pink Netlify bloqueou URL com credenciais embutidas.");
 
-    const policy = netlifyPolicy ?? this.defaultPolicy;
-    this.assertAllowed(url, sandboxPolicy, policy);
+    // A política importada pela sandbox pode restringir a política global,
+    // mas nunca pode sobrescrever permissões/negações globais.
+    const policies = [this.defaultPolicy, netlifyPolicy].filter(
+      (item): item is WebPinkNetlifyPolicy => item !== undefined,
+    );
+    this.assertAllowed(url, sandboxPolicy, policies);
 
     const controller = new AbortController();
     const timeout = this.options.requestTimeoutMs && this.options.requestTimeoutMs > 0
@@ -129,25 +133,31 @@ export class WebPink {
     return client;
   }
 
-  private assertAllowed(url: URL, sandbox: WebPinkSandboxPolicy, policy?: WebPinkNetlifyPolicy): void {
+  private assertAllowed(url: URL, sandbox: WebPinkSandboxPolicy, policies: WebPinkNetlifyPolicy[]): void {
     const host = normalizeHost(url.hostname);
-    const denied = matchesHost(host, policy?.denyHosts) || matchesUrl(url, policy?.denyUrls);
+    const denied = policies.some((policy) =>
+      matchesHost(host, policy.denyHosts) || matchesUrl(url, policy.denyUrls),
+    );
     if (denied) throw new Error(`Web Pink Netlify bloqueou destino explicitamente negado: ${url.hostname}`);
 
     const hostConstraints = [this.options.allowHosts, sandbox.allowHosts].filter(
       (list): list is string[] => Array.isArray(list),
     );
     const hostAllowedByHostLists = hostConstraints.every((list) => matchesHost(host, list));
-    const urlAllowed = matchesUrl(url, policy?.allowUrls);
-    const policyHasAllowRules = Boolean(policy?.allowHosts?.length || policy?.allowUrls?.length);
-    const policyAllows = !policyHasAllowRules || matchesHost(host, policy?.allowHosts) || urlAllowed;
+    const policyAllows = policies.every((policy) => {
+      const hasAllowRules = Boolean(policy.allowHosts?.length || policy.allowUrls?.length);
+      return !hasAllowRules || matchesHost(host, policy.allowHosts) || matchesUrl(url, policy.allowUrls);
+    });
     if (!hostAllowedByHostLists || !policyAllows) {
       throw new Error(`Web Pink bloqueou host/URL fora da lista permitida: ${url.hostname}`);
     }
 
-    // Hosts internos são negados nativamente, mesmo quando a política é ampla.
-    // Uma exceção exige allowInternal:true e uma permissão explícita do host.
-    if (isUnsafeHost(host) && !(sandbox.allowInternal === true && policy?.allowInternal === true && (urlAllowed || matchesHost(host, policy.allowHosts)))) {
+    // Uma política local não pode ampliar a política global. Para liberar um
+    // destino local/suspeito, todas as políticas ativas devem aprová-lo.
+    const internalException = sandbox.allowInternal === true && policies.length > 0 &&
+      policies.every((policy) => policy.allowInternal === true &&
+        (matchesUrl(url, policy.allowUrls) || matchesHost(host, policy.allowHosts)));
+    if (isUnsafeHost(host) && !internalException) {
       throw new Error(`Web Pink Netlify bloqueou host local, privado ou suspeito: ${url.hostname}`);
     }
   }
