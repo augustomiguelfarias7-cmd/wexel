@@ -34,7 +34,6 @@ export interface WebPinkMessage {
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const BLOCKED_SUFFIXES = [".localhost", ".local", ".internal", ".test", ".invalid", ".example", ".onion", ".arpa"];
-const MAX_REDIRECTS = 5;
 
 export class WebPinkClient {
   private readonly inbox: WebPinkMessage[] = [];
@@ -91,6 +90,7 @@ export class WebPink {
     this.requireClient(sandboxId);
     let url = new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url);
     if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`Web Pink bloqueou protocolo: ${url.protocol}`);
+    if (url.username || url.password) throw new Error("Web Pink Netlify bloqueou URL com credenciais embutidas.");
 
     const policy = netlifyPolicy ?? this.defaultPolicy;
     this.assertAllowed(url, sandboxPolicy, policy);
@@ -117,7 +117,7 @@ export class WebPink {
   send(from: string, to: string, payload: unknown): void {
     const sender = this.requireClient(from);
     const receiver = this.requireClient(to);
-    if (sender.policy.allowInternal === false) throw new Error(`Web Pink bloqueou comunicação interna para ${from}`);
+    if (sender.policy.allowInternal !== true) throw new Error(`Web Pink bloqueou comunicação interna para ${from}; habilite allowInternal explicitamente.`);
     receiver.deliver({ from, to, payload, timestamp: Date.now() });
   }
 
