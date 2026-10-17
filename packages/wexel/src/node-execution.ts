@@ -69,14 +69,16 @@ export class NodeExecution {
     if (this.sandboxes.has(id)) throw new Error(`Sandbox já existe: ${id}`);
 
     const webPink = this.webPink?.createClient(id, options.webPink);
-    const sandboxFetcher: typeof fetch | undefined = webPink
-      ? (async (input, init) => {
-          if (options.permissions?.network !== true) {
-            throw new Error("Permissão de rede negada para esta sandbox.");
-          }
-          return webPink.fetch(input, init);
-        }) as typeof fetch
-      : undefined;
+    // Toda chamada de rede do runtime passa por este wrapper, mesmo quando
+    // WebPink não foi configurado. Sem isso, o fallback global fetch ignoraria
+    // permissions.network e permitiria rede por caminhos como curl/PyPI.
+    const sandboxFetcher: typeof fetch = (async (input, init) => {
+      if (options.permissions?.network !== true) {
+        throw new Error("Permissão de rede negada para esta sandbox.");
+      }
+      if (webPink) return webPink.fetch(input, init);
+      return fetch(input, init);
+    }) as typeof fetch;
 
     // Não reutilizar a instância do kernel: cada sandbox precisa de estado isolado.
     const kernelBoot = this.options.linuxKernel
