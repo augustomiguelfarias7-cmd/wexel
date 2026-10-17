@@ -124,7 +124,14 @@ export class WebPink {
     if (sender.policy.allowInternal !== true || receiver.policy.allowInternal !== true) {
       throw new Error("Web Pink bloqueou comunicação interna: remetente e destinatário devem habilitar allowInternal.");
     }
-    receiver.deliver({ from, to, payload, timestamp: Date.now() });
+    // Nunca compartilhar referências mutáveis entre sandboxes.
+    let isolatedPayload: unknown;
+    try {
+      isolatedPayload = structuredClone(payload);
+    } catch {
+      throw new Error("Web Pink exige payload clonável para comunicação entre sandboxes.");
+    }
+    receiver.deliver({ from, to, payload: isolatedPayload, timestamp: Date.now() });
   }
 
   private requireClient(id: string): WebPinkClient {
