@@ -92,6 +92,13 @@ export class NodeExecution {
       ? await bootKernel(this.options.linuxKernel)
       : undefined;
 
+    const sandboxBusyBox = this.options.busyBox
+      ? await createBusyBoxRunner(
+          this.options.busyBox.factory,
+          this.options.busyBox.wasmSource ?? this.options.busyBox.wasmUrl!,
+        )
+      : undefined;
+
     const runtime = await Wexel.create({
       coreBytes: this.options.coreBytes,
       kernel: kernelBoot?.kernel,
@@ -106,8 +113,8 @@ export class NodeExecution {
         : this.options.pythonWasi === false
           ? undefined
           : nodeWasiPythonRunnerFactory(this.options.pythonWasi ?? {}),
-      bashRunner: this.busyBox
-        ? async (args) => this.busyBox!.run({ args: ["busybox", "sh", ...args] })
+      bashRunner: sandboxBusyBox
+        ? async (args) => sandboxBusyBox.run({ args: ["busybox", "sh", ...args] })
         : undefined,
       networkFetch: sandboxFetcher,
       nativeCliBytes: this.options.nativeCliBytes,
