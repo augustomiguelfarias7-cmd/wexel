@@ -30,6 +30,18 @@ describe("WebPink Netlify policy", () => {
     await expect(client.fetch("https://api.example.com/data")).rejects.toThrow(/explicitamente negado/);
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it("isolates payload objects and requires both sandboxes to allow internal messages", () => {
+    const network = new WebPink();
+    const sender = network.createClient("sender", { allowInternal: true });
+    const receiver = network.createClient("receiver", { allowInternal: true });
+    const payload = { nested: { value: 1 } };
+    sender.send("receiver", payload);
+    payload.nested.value = 2;
+    expect(receiver.receive()[0]?.payload).toEqual({ nested: { value: 1 } });
+
+    const denied = network.createClient("denied");
+    expect(() => sender.send("denied", { value: true })).toThrow(/allowInternal/);
+  });
   it("blocks local destinations by default", async () => {
     const fetcher = vi.fn(async () => new Response("should not be reached"));
     const client = new WebPink({ fetcher }).createClient("sandbox");
