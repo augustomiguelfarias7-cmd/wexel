@@ -78,7 +78,14 @@ export class NodeExecution {
     if (this.sandboxes.has(id)) throw new Error(`Sandbox já existe: ${id}`);
 
     const webPink = this.webPink?.createClient(id, options.webPink);
-    const sandboxFetcher = webPink?.fetch.bind(webPink) as typeof fetch | undefined;
+    const sandboxFetcher: typeof fetch | undefined = webPink
+      ? (async (input, init) => {
+          if (options.permissions?.network !== true) {
+            throw new Error("Permissão de rede negada para esta sandbox.");
+          }
+          return webPink.fetch(input, init);
+        }) as typeof fetch
+      : undefined;
 
     // Não reutilizar a instância do kernel: cada sandbox precisa de estado isolado.
     const kernelBoot = this.options.linuxKernel
