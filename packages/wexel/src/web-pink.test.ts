@@ -19,6 +19,17 @@ describe("WebPink Netlify policy", () => {
     expect(await (await client.fetch("https://api.example.com/v1/items")).text()).toBe("ok");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it("does not let a sandbox policy override global deny rules", async () => {
+    const fetcher = vi.fn(async () => new Response("should not be reached"));
+    const network = new WebPink({
+      fetcher,
+      policyJson: JSON.stringify({ version: 1, denyHosts: ["api.example.com"] }),
+    });
+    const client = network.createClient("sandbox");
+    client.importPolicyJson(JSON.stringify({ version: 1, allowHosts: ["api.example.com"] }));
+    await expect(client.fetch("https://api.example.com/data")).rejects.toThrow(/explicitamente negado/);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("blocks local destinations by default", async () => {
     const fetcher = vi.fn(async () => new Response("should not be reached"));
     const client = new WebPink({ fetcher }).createClient("sandbox");
