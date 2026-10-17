@@ -102,7 +102,8 @@ export class WebPink {
     try {
       // Redirecionamentos são bloqueados para impedir que um host permitido
       // redirecione a sandbox para um destino interno ou não autorizado.
-      const response = await this.fetcher(url, { ...init, redirect: "manual", signal: controller.signal });
+      const signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+      const response = await this.fetcher(input, { ...init, redirect: "manual", signal });
       if (REDIRECT_STATUSES.has(response.status)) {
         await response.body?.cancel();
         throw new Error("Web Pink Netlify bloqueou redirecionamento HTTP; valide o destino e faça uma nova requisição.");
