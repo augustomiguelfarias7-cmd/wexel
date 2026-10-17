@@ -90,7 +90,7 @@ export class WexelMemory64FileSystem implements WexelFileSystemLike {
   readonly home: string;
   constructor(
     private readonly core: WexelCoreInstance,
-    quotaBytes = 5 * 1024 * 1024 * 1024,
+    quotaBytes = Number(core.exports.wexel_memory64_limit_bytes()),
     homeDirectory = "/home/wexel",
   ) {
     this.home = normalizeHome(homeDirectory);
