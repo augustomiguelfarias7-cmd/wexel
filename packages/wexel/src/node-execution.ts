@@ -50,6 +50,11 @@ export class NodeExecution {
   /** Cada sandbox recebe seu próprio boot/kernel Linux-WASM. */
   private readonly kernelBoots = new Map<string, Awaited<ReturnType<typeof bootKernel>>>();
 
+  private constructor(private readonly options: NodeExecutionOptions, busyBox?: Awaited<ReturnType<typeof createBusyBoxRunner>>, webPink?: WebPink) {
+    this.busyBox = busyBox;
+    this.webPink = webPink;
+  }
+
   static async create(options: NodeExecutionOptions): Promise<NodeExecution> {
     const busyBoxOptions = options.busyBox;
     if (busyBoxOptions && !busyBoxOptions.wasmSource && !busyBoxOptions.wasmUrl) {
