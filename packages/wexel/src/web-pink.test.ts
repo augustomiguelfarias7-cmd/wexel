@@ -29,11 +29,11 @@ describe("WebPink Netlify policy", () => {
   it("blocks redirects", async () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 302, headers: { location: "http://127.0.0.1/" } }));
     const client = new WebPink({ fetcher }).createClient("sandbox");
-    await expect(client.fetch("https://public.example/")).rejects.toThrow(/bloqueou redirecionamento/);
+    await expect(client.fetch("https://public.example.com/")).rejects.toThrow(/bloqueou redirecionamento/);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("caps response bodies", async () => {
     const client = new WebPink({ fetcher: async () => new Response("12345"), maxResponseBytes: 4 }).createClient("sandbox");
-    await expect(client.fetch("https://public.example/")).rejects.toThrow(/limite de resposta/);
+    await expect(client.fetch("https://public.example.com/")).rejects.toThrow(/limite de resposta/);
   });
 });
