@@ -242,7 +242,7 @@ export class WexelMemory64FileSystem implements WexelFileSystemLike {
 
 export function normalizeHome(path: string): string {
   if (!path.startsWith("/")) throw new Error("O diretório home deve ser um caminho absoluto.");
-  const normalized = path.replace(/\/+$/, "");
+  const normalized = path.replace(/\/+$/, "") || "/";
   if (normalized === "/" || normalized.includes("/../") || normalized.endsWith("/..")) throw new Error("Diretório home inválido.");
   return normalized;
 }
