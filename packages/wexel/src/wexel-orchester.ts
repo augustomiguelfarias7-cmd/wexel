@@ -38,7 +38,12 @@ class ManagedSandbox implements WexelOrchesterSandbox {
   private readonly pending = new Map<string, { resolve: (result: ExecResult) => void; reject: (error: Error) => void }>();
   private resolveReady!: () => void;
   private rejectReady!: (error: Error) => void;
-  private readonly ready = new Promise<void>((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
+  private resolveExit!: () => void;
+  private readonly ready = new Promise<void>((resolve, reject) => {
+    this.resolveReady = resolve;
+    this.rejectReady = reject;
+  });
+  private readonly exited = new Promise<void>((resolve) => { this.resolveExit = resolve; });
 
   constructor(
     readonly id: string,
@@ -51,6 +56,7 @@ class ManagedSandbox implements WexelOrchesterSandbox {
     child.on("exit", (code, signal) => {
       const intentional = this.status === "stopping";
       this.status = intentional ? "stopped" : "failed";
+      this.resolveExit();
       this.emit({ type: "sandbox-exit", sandboxId: this.id, code, signal });
       const error = new Error(`Sandbox ${this.id} encerrou inesperadamente.`);
       this.rejectReady(error);
@@ -62,7 +68,12 @@ class ManagedSandbox implements WexelOrchesterSandbox {
   get pid(): number | undefined { return this.child.pid; }
 
   private onMessage(message: WorkerMessage): void {
+    if (!message || typeof message !== "object" || typeof message.type !== "string") {
+      this.fail(new Error("Worker enviou uma mensagem IPC inválida."));
+      return;
+    }
     if (message.type === "ready") {
+      if (this.status !== "starting") return;
       this.status = "ready";
       this.resolveReady();
       this.emit({ type: "sandbox-ready", sandboxId: this.id, pid: this.pid });
@@ -84,6 +95,8 @@ class ManagedSandbox implements WexelOrchesterSandbox {
     this.emit({ type: "sandbox-error", sandboxId: this.id, error: error.message });
     for (const item of this.pending.values()) item.reject(error);
     this.pending.clear();
+    // Um evento fatal não pode deixar um worker órfão consumindo recursos.
+    if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGTERM");
   }
 
   async waitReady(timeoutMs: number): Promise<void> {
@@ -102,28 +115,60 @@ class ManagedSandbox implements WexelOrchesterSandbox {
     const requestId = randomUUID();
     return new Promise((resolve, reject) => {
       this.pending.set(requestId, { resolve, reject });
-      this.child.send({ type: "exec", requestId, request }, (error) => {
-        if (!error) return;
+      try {
+        if (!this.child.connected) throw new Error("Canal IPC da sandbox está desconectado.");
+        this.child.send({ type: "exec", requestId, request }, (error) => {
+          if (!error) return;
+          this.pending.delete(requestId);
+          reject(error);
+        });
+      } catch (error) {
         this.pending.delete(requestId);
-        reject(error);
-      });
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
   async stop(): Promise<void> {
-    if (this.status === "stopped" || this.status === "failed") return;
+    if (this.status === "stopped") return;
     this.status = "stopping";
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(); } };
-      const timer = setTimeout(() => { this.child.kill("SIGTERM"); finish(); }, this.shutdownTimeoutMs);
-      this.child.once("exit", finish);
-      this.child.send({ type: "shutdown" }, (error) => { if (error) this.child.kill("SIGTERM"); });
-    });
+
+    try {
+      if (this.child.connected) {
+        this.child.send({ type: "shutdown" }, (error) => {
+          if (error) this.child.kill("SIGTERM");
+        });
+      } else if (this.child.exitCode === null && this.child.signalCode === null) {
+        this.child.kill("SIGTERM");
+      }
+    } catch {
+      this.child.kill("SIGTERM");
+    }
+
+    const waitForExit = async (timeoutMs: number): Promise<boolean> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          this.exited.then(() => true),
+          new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    if (await waitForExit(this.shutdownTimeoutMs)) return;
+    this.child.kill("SIGTERM");
+    if (await waitForExit(500)) return;
+    this.child.kill("SIGKILL");
+    await this.exited;
   }
 
   sendInit(message: object): void {
-    this.child.send(message);
+    if (!this.child.connected) throw new Error("Canal IPC indisponível ao iniciar sandbox.");
+    this.child.send(message, (error) => {
+      if (error) this.fail(error);
+    });
   }
 }
 
@@ -137,6 +182,9 @@ export class WexelOrchester {
   private readonly workerPath: string;
 
   private constructor(private readonly options: WexelOrchesterOptions) {
+    if (!options.coreBytes || options.coreBytes.byteLength === 0) {
+      throw new Error("WexelOrchester requer um artefato Wexel Core não vazio.");
+    }
     const source = options.coreBytes;
     this.coreBytes = source instanceof ArrayBuffer
       ? new Uint8Array(source.slice(0))
@@ -164,19 +212,19 @@ export class WexelOrchester {
       serialization: "advanced",
       execArgv: process.execArgv,
     });
-    const sandbox = new ManagedSandbox(id, child, (event) => this.options.onEvent?.(event), this.options.shutdownTimeoutMs ?? 2000);
+    const sandbox = new ManagedSandbox(id, child, (event) => {
+      try { this.options.onEvent?.(event); } catch { /* callbacks de observação não podem derrubar o orquestrador */ }
+    }, this.options.shutdownTimeoutMs ?? 2000);
     this.sandboxes.set(id, sandbox);
-    this.options.onEvent?.({ type: "sandbox-starting", sandboxId: id, pid: child.pid });
-
-    sandbox.sendInit({
-      type: "init",
-      coreBytes: new Uint8Array(this.coreBytes),
-      permissions: options.permissions ?? this.options.permissions,
-      storageQuotaBytes: options.storageQuotaBytes ?? this.options.storageQuotaBytes,
-      homeDirectory: `/home/${id}`,
-    });
-
     try {
+      this.options.onEvent?.({ type: "sandbox-starting", sandboxId: id, pid: child.pid });
+      sandbox.sendInit({
+        type: "init",
+        coreBytes: new Uint8Array(this.coreBytes),
+        permissions: options.permissions ?? this.options.permissions,
+        storageQuotaBytes: options.storageQuotaBytes ?? this.options.storageQuotaBytes,
+        homeDirectory: `/home/${id}`,
+      });
       await sandbox.waitReady(this.options.startupTimeoutMs ?? 15000);
       return sandbox;
     } catch (error) {
