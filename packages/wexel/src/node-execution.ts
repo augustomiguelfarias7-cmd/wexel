@@ -64,6 +64,20 @@ export class NodeExecution {
     );
   }
 
+
+  /** Cria o gerenciador multiprocesso para sandboxes isoladas em processos Node.js separados. */
+  static async createOrchester(options: Pick<NodeExecutionOptions, "coreBytes"> & {
+    permissions?: WexelPermissions;
+    storageQuotaBytes?: number;
+    startupTimeoutMs?: number;
+    shutdownTimeoutMs?: number;
+    onEvent?: (event: import("./wexel-orchester.js").WexelOrchesterEvent) => void;
+    workerPath?: string;
+  }): Promise<import("./wexel-orchester.js").WexelOrchester> {
+    const { WexelOrchester } = await import("./wexel-orchester.js");
+    return WexelOrchester.create(options);
+  }
+
   async createSandbox(options: SandboxOptions = {}): Promise<BackendSandbox> {
     const id = options.id ?? randomUUID();
     if (this.sandboxes.has(id)) throw new Error(`Sandbox já existe: ${id}`);
