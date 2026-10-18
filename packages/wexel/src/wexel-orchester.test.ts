@@ -92,6 +92,40 @@ describe("WexelOrchester", () => {
     }
   });
 
+  it("preserves failed status when destroying a sandbox whose worker already exited", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "wexel-orchester-crash-"));
+    temporaryDirectories.push(directory);
+    const workerPath = join(directory, "worker.mjs");
+    await writeFile(workerPath, `
+process.on("message", (message) => {
+  if (message.type === "init") {
+    process.send({ type: "ready" });
+    setImmediate(() => process.exit(17));
+  }
+});
+`);
+    let resolveExit!: () => void;
+    const childExited = new Promise<void>((resolve) => { resolveExit = resolve; });
+    const orchestrator = WexelOrchester.create({
+      coreBytes: new Uint8Array([1]),
+      workerPath,
+      startupTimeoutMs: 3000,
+      onEvent: (event) => {
+        if (event.type === "sandbox-exit") resolveExit();
+      },
+    });
+
+    try {
+      const sandbox = await orchestrator.createSandbox({ id: "CRS" });
+      await childExited;
+      expect(sandbox.status).toBe("failed");
+      await orchestrator.destroySandbox(sandbox.id);
+      expect(sandbox.status).toBe("failed");
+    } finally {
+      await orchestrator.dispose();
+    }
+  });
+
   it("rejects invalid and duplicate sandbox IDs", async () => {
     const orchestrator = WexelOrchester.create({
       coreBytes: new Uint8Array([1]),
