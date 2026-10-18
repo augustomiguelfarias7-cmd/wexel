@@ -1,0 +1,55 @@
+name: Validate Wexel
+
+on:
+  push:
+    branches:
+      - feat/wexelorchester-multiprocess
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    name: TypeScript build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check workspaces
+        run: npm run typecheck
+      - name: Build Wexel TypeScript package
+        run: npm run build --workspace=wexel
+      - name: Run Wexel tests
+        run: npm test
+
+  memory64:
+    name: Compile and test Wexel Core Memory64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install compiler toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld python3
+      - name: Compile Memory64 WebAssembly artifact
+        working-directory: packages/wexel-core/memory64
+        run: bash tools/build-memory64.sh
+      - name: Verify Memory64 exports and 16 GiB growth
+        working-directory: packages/wexel-core/memory64
+        run: node --experimental-wasm-memory64 tools/test-memory64.mjs
