@@ -22,6 +22,10 @@
     "./busybox": {
       "types": "./dist/busybox.d.ts",
       "import": "./dist/busybox.js"
+    },
+    "./orchester": {
+      "types": "./dist/wexel-orchester.d.ts",
+      "import": "./dist/wexel-orchester.js"
     }
   },
   "files": [
