@@ -12,7 +12,7 @@ describe("Wexel runtime", () => {
   it("instancia o Execution Core WebAssembly", async () => {
     const rt = await runtime();
     expect(rt.core.exports.wexel_memory64_pointer_bits()).toBe(64);
-    expect(rt.core.exports.wexel_vfs_directory_count()).toBeGreaterThan(1);
+    expect(rt.fs.exists("/home/wexel")).toBe(true);
     expect(rt.core.exports.memory).toBeInstanceOf(WebAssembly.Memory);
   });
   it("interpreta um programa Go pela toolchain Yaegi embutida", async () => {

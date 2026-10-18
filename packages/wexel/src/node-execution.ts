@@ -6,6 +6,7 @@ import { Wexel, type WexelPermissions, type WexelRuntime, type ExecResult } from
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
 import { bootKernel } from "./kernel-boot.js";
+import type { WexelOrchester, WexelOrchesterOptions } from "./wexel-orchester.js";
 
 export interface NodeExecutionBusyBoxOptions {
   factory: BusyBoxFactory;
@@ -62,6 +63,37 @@ export class NodeExecution {
       options,
       options.webPink ? new WebPink(options.webPink) : undefined,
     );
+  }
+
+
+  /** Cria o gerenciador multiprocesso para sandboxes isoladas em processos Node.js separados. */
+  static async createOrchester(options: Pick<NodeExecutionOptions, "coreBytes"> & {
+    permissions?: WexelPermissions;
+    storageQuotaBytes?: number;
+    startupTimeoutMs?: number;
+    shutdownTimeoutMs?: number;
+    onEvent?: (event: import("./wexel-orchester.js").WexelOrchesterEvent) => void;
+    workerPath?: string;
+    webPink?: Omit<WebPinkOptions, "fetcher">;
+  }): Promise<import("./wexel-orchester.js").WexelOrchester> {
+    const { WexelOrchester } = await import("./wexel-orchester.js");
+    return WexelOrchester.create(options);
+  }
+
+  /**
+   * Cria um orquestrador multiprocesso usando o Core desta instância.
+   * Encaminha a configuração serializável do WebPink e as permissões de rede.
+   * Runners JS/Python, kernel, BusyBox e adaptadores FS ainda não são encaminhados.
+   */
+  async createOrchester(options: Omit<WexelOrchesterOptions, "coreBytes"> = {}): Promise<WexelOrchester> {
+    const { WexelOrchester } = await import("./wexel-orchester.js");
+    const webPink = this.options.webPink ? {
+      allowHosts: this.options.webPink.allowHosts,
+      requestTimeoutMs: this.options.webPink.requestTimeoutMs,
+      maxResponseBytes: this.options.webPink.maxResponseBytes,
+      policyJson: this.options.webPink.policyJson,
+    } : undefined;
+    return WexelOrchester.create({ ...options, coreBytes: this.options.coreBytes, webPink: options.webPink ?? webPink });
   }
 
   async createSandbox(options: SandboxOptions = {}): Promise<BackendSandbox> {

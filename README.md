@@ -231,17 +231,17 @@ The filesystem is virtual. Operations against these paths do not automatically a
 
 **Memory64** is a WebAssembly feature that allows linear memories to use 64-bit address indexes instead of the 32-bit indexes used by traditional WASM32 memories. This makes address spaces larger than 4 GiB possible in compatible engines and toolchains. The configured 16 GiB maximum is a limit on the module's linear-memory address space: it is not a limit on the host PC's RAM, nor does it reserve 16 GiB of physical RAM. See the [WebAssembly Memory64 proposal](https://github.com/WebAssembly/memory64).
 
-The default Wexel core is now the **Memory64 core** in `packages/wexel-core/memory64/`. It separates linear-memory allocation from virtual-filesystem behavior:
+The default Wexel core is the **Memory64 allocator** in `packages/wexel-core/memory64/`. It separates linear-memory allocation from virtual-filesystem metadata:
 
-- **Memory manager:** owns Memory64 allocation, reuses freed blocks, grows memory on demand, and enforces a configured maximum.
-- **Virtual filesystem (VFS):** stores file payloads, path names, and directory records in the core's linear memory; the previous fixed 512-node table has been removed.
-- **Host adapter:** `WexelMemory64FileSystem` bridges the TypeScript runtime to the core ABI, while persistent Map/IndexedDB adapters remain opt-in.
-- **Directory and file operations:** supports normalized absolute paths, recursive parent creation, listing, reads/writes, file/directory removal, quota accounting, and snapshots. This is a Linux-like hierarchy, not full POSIX compatibility.
+- **Memory manager:** owns 64-bit allocation, reuses freed blocks, grows memory on demand, and enforces a configured maximum.
+- **Virtual filesystem (VFS):** TypeScript manages normalized paths, directory metadata, listings, quota accounting, and snapshots.
+- **File payload storage:** file bytes are allocated in the Core's WebAssembly linear memory. Path and directory metadata stay in TypeScript data structures.
+- **Logical quota:** the default is **5 GiB**. This is a quota ceiling, not 5 GiB preallocated at startup. Writes consume linear memory on demand, and allocator overhead or runtime limits can prevent reaching the full quota.
+- **Directory and file operations:** supports recursive parent creation, listing, reads/writes, file/directory removal, and snapshots. This is a Linux-like hierarchy, not full POSIX compatibility.
 
-The core is built with a maximum of **16 GiB of WebAssembly linear-memory address space** and starts at **16 MiB**. Memory grows on demand; the maximum is not reserved at startup and is not a measurement or cap of the PC's physical RAM. The default logical VFS quota follows the Memory64 core artifact's configured limit (**16 GiB by default**); callers can configure a smaller quota. Allocator metadata also occupies linear memory, so actual file payload capacity is lower than the logical quota and allocation can fail before that quota is reached. Free-list reuse prevents repeated overwrites/removals from monotonically consuming the entire arena, but linear memory itself does not shrink after growth.
+The core is built with a maximum of **16 GiB of WebAssembly linear-memory address space** and starts at **16 MiB**. The maximum is not reserved at startup and is not a measurement or cap of the PC's physical RAM. Free-list reuse helps recycle released allocations, but linear memory itself does not shrink after growth.
 
-**Runtime requirement:** Memory64 support varies by engine and version. The core build requires Clang/LLD with the `wasm64` target. Node.js 22.13 in the validated environment requires `--experimental-wasm-memory64` (the repository test script supplies this flag); check the target runtime before deployment. The 16 GiB test verifies linear-memory growth and preservation of small files—it does not write 16 GiB of file data. Actual physical resource use depends on pages touched and the host runtime/OS; the configured linear-memory ceiling itself does not reserve or cap PC RAM. Run `npm run build` and `npm test` from the repository root.
-
+**Runtime requirement:** Memory64 support varies by engine and version. The core build requires Clang/LLD with the `wasm64` target. Node.js 22 may require `--experimental-wasm-memory64`. The 16 GiB allocator test verifies linear-memory growth; it does not write 16 GiB of file contents. Actual resource use depends on the runtime and host OS. Run `npm run build` and `npm test` from the repository root.
 ## NodeExecution
 
 `NodeExecution` is the backend orchestration layer introduced in Wexel 3.0.
