@@ -26,8 +26,10 @@ The checkout/dependency environment available for this review has no repository 
 
 A lifecycle bug was found: after an unexpected child exit, calling `destroySandbox()` could overwrite the terminal `"failed"` state with `"stopping"`. The implementation now preserves `"failed"` when the child has already exited, and a regression test was added for a worker that exits immediately after becoming ready.
 
-**The new regression test has not been executed yet**, because the full Vitest environment is unavailable here.
+The final shutdown fallback also had a potential indefinite wait: if the worker entry point failed to spawn and Node emitted an `error` without a later `exit`, `stop()` could wait forever after sending `SIGKILL`. The wait is now bounded and reports a shutdown error instead of hanging; a regression test covers a missing worker entry point.
+
+**Both regression tests remain unexecuted** because the full Vitest environment is unavailable here.
 
 ## Conclusion
 
-The Core Memory64 artifact and allocator checks listed above passed. This does **not** establish that the full PR passes: Vitest, build/typecheck, real VFS integration, and actual worker IPC remain unverified. Keep the PR in draft until those checks can be run.
+The Core Memory64 artifact and allocator checks listed above passed. This does **not** establish that the full PR passes: Vitest, build/typecheck, real VFS integration, and actual worker IPC remain unverified. The code review found and patched the shutdown-hang case, but the PR should not be treated as fully validated until build/typecheck, Vitest, real VFS integration, and worker IPC tests can be run.
