@@ -48,6 +48,8 @@ The existing artifact smoke test also passed: 64-bit pointers, configured 16 GiB
 
 The worker-process test exercises the process protocol harness, not the full `WexelOrchester` TypeScript class. The two original Vitest files are not represented as having passed.
 
+The current PR also forwards serializable WebPink options to each worker and enforces `permissions.network` through the worker's `networkFetch`. A custom `WebPinkOptions.fetcher` function cannot be serialized across IPC and is not forwarded; workers use the global `fetch` unless a serializable WebPink policy/configuration is provided.
+
 ## Static-review findings fixed in the PR
 
 - Preserved the terminal `failed` state when destroying a sandbox whose child process had already exited; a regression test was added.
