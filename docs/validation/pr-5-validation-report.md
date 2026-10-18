@@ -22,10 +22,12 @@ These tests exercised the committed WASM artifact directly. The 16 GiB check gre
 
 The checkout/dependency environment available for this review has no repository working tree, Vitest or `@types/node` installation, and network/DNS access to GitHub and npm is unavailable. GitHub reported no workflow runs and no commit statuses for the tested commit, so there is no remote CI result to rely on.
 
-## Static-review finding requiring follow-up
+## Static-review finding and follow-up
 
-In `ManagedSandbox`, an unexpected child exit sets `status = "failed"` and resolves the exit promise. If `destroySandbox()` is then called, `stop()` overwrites the status with `"stopping"`; its wait resolves immediately because the exit promise is already resolved, so the status can remain `"stopping"` permanently on a retained sandbox reference. Add a regression test for an unexpectedly exiting worker and preserve a terminal status when stopping an already-exited child.
+A lifecycle bug was found: after an unexpected child exit, calling `destroySandbox()` could overwrite the terminal `"failed"` state with `"stopping"`. The implementation now preserves `"failed"` when the child has already exited, and a regression test was added for a worker that exits immediately after becoming ready.
+
+**The new regression test has not been executed yet**, because the full Vitest environment is unavailable here.
 
 ## Conclusion
 
-The Core Memory64 artifact and allocator checks listed above passed. This does **not** establish that the full PR passes: Vitest, build/typecheck, real VFS integration, and actual worker IPC remain unverified, and the lifecycle issue above should be fixed before treating the PR as ready.
+The Core Memory64 artifact and allocator checks listed above passed. This does **not** establish that the full PR passes: Vitest, build/typecheck, real VFS integration, and actual worker IPC remain unverified. Keep the PR in draft until those checks can be run.
