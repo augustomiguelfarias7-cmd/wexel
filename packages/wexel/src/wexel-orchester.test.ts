@@ -126,6 +126,20 @@ process.on("message", (message) => {
     }
   });
 
+  it("does not hang forever when the worker entry point cannot be spawned", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "wexel-orchester-missing-"));
+    temporaryDirectories.push(directory);
+    const orchestrator = WexelOrchester.create({
+      coreBytes: new Uint8Array([1]),
+      workerPath: join(directory, "missing-worker.mjs"),
+      startupTimeoutMs: 3000,
+      shutdownTimeoutMs: 250,
+    });
+    await expect(orchestrator.createSandbox({ id: "ERR" })).rejects.toThrow();
+    expect(orchestrator.listSandboxes()).toHaveLength(0);
+    await orchestrator.dispose();
+  });
+
   it("rejects invalid and duplicate sandbox IDs", async () => {
     const orchestrator = WexelOrchester.create({
       coreBytes: new Uint8Array([1]),
