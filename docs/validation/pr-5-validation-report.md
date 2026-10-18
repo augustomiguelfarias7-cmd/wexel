@@ -28,7 +28,9 @@ A lifecycle bug was found: after an unexpected child exit, calling `destroySandb
 
 The final shutdown fallback also had a potential indefinite wait: if the worker entry point failed to spawn and Node emitted an `error` without a later `exit`, `stop()` could wait forever after sending `SIGKILL`. The wait is now bounded and reports a shutdown error instead of hanging; a regression test covers a missing worker entry point.
 
-**Both regression tests remain unexecuted** because the full Vitest environment is unavailable here.
+A path-normalization edge case was also found: a home path of `/` (or only slashes) normalized to an empty string and slipped past validation. The Memory64 VFS now normalizes that case to `/` before rejecting it, with regression coverage.
+
+**The new regression tests remain unexecuted** because the full Vitest environment is unavailable here.
 
 ## Conclusion
 
