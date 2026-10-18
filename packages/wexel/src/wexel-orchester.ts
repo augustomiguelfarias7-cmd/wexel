@@ -163,7 +163,9 @@ class ManagedSandbox implements WexelOrchesterSandbox {
     this.child.kill("SIGTERM");
     if (await waitForExit(500)) return;
     this.child.kill("SIGKILL");
-    await this.exited;
+    if (!(await waitForExit(1000))) {
+      throw new Error(`Sandbox ${this.id} não encerrou após SIGKILL.`);
+    }
   }
 
   sendInit(message: object): void {
