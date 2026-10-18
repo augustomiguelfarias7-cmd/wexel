@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { coreSourceUrl, instantiateCore } from "@wexel/core";
 import { WexelMemory64FileSystem } from "./filesystem.js";
 import type { WexelCoreInstance } from "@wexel/core";
 
@@ -60,4 +62,16 @@ describe("WexelMemory64FileSystem", () => {
     expect(fs.exists("/home/wexel/a.txt")).toBe(false);
     expect(fs.quota.usedBytes).toBe(0);
   });
+});
+
+it("integrates with the compiled Memory64 Core artifact", async () => {
+  const core = await instantiateCore(await readFile(coreSourceUrl()));
+  const fs = new WexelMemory64FileSystem(core);
+  fs.mkdir("/home/integration/nested");
+  fs.write("/home/integration/nested/core.txt", "stored in Core linear memory");
+  expect(fs.readText("/home/integration/nested/core.txt")).toBe("stored in Core linear memory");
+  expect(fs.list("/home/integration")).toContain("nested/core.txt");
+  fs.remove("/home/integration");
+  expect(fs.exists("/home/integration/nested/core.txt")).toBe(false);
+  expect(fs.quota.usedBytes).toBe(0);
 });
