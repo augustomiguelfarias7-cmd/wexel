@@ -2,12 +2,17 @@ import { fork, type ChildProcess } from "node:child_process";
 import { randomInt, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ExecRequest, ExecResult, WexelPermissions } from "./index.js";
+import type { WebPinkOptions } from "./web-pink.js";
+
+type SerializableWebPinkOptions = Omit<WebPinkOptions, "fetcher">;
 
 export interface WexelOrchesterOptions {
   coreBytes: BufferSource;
   workerPath?: string;
   permissions?: WexelPermissions;
   storageQuotaBytes?: number;
+  /** Configuração serializável do WebPink usada dentro de cada worker. */
+  webPink?: SerializableWebPinkOptions;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   onEvent?: (event: WexelOrchesterEvent) => void;
@@ -228,10 +233,12 @@ export class WexelOrchester {
       }
       sandbox.sendInit({
         type: "init",
+        sandboxId: id,
         coreBytes: new Uint8Array(this.coreBytes),
         permissions: options.permissions ?? this.options.permissions,
         storageQuotaBytes: options.storageQuotaBytes ?? this.options.storageQuotaBytes,
         homeDirectory: `/home/${id}`,
+        webPinkOptions: this.options.webPink,
       });
       await sandbox.waitReady(this.options.startupTimeoutMs ?? 15000);
       return sandbox;
