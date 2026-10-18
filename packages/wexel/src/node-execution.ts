@@ -6,6 +6,7 @@ import { Wexel, type WexelPermissions, type WexelRuntime, type ExecResult } from
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
 import { bootKernel } from "./kernel-boot.js";
+import type { WexelOrchester, WexelOrchesterOptions } from "./wexel-orchester.js";
 
 export interface NodeExecutionBusyBoxOptions {
   factory: BusyBoxFactory;
@@ -76,6 +77,16 @@ export class NodeExecution {
   }): Promise<import("./wexel-orchester.js").WexelOrchester> {
     const { WexelOrchester } = await import("./wexel-orchester.js");
     return WexelOrchester.create(options);
+  }
+
+  /**
+   * Cria um orquestrador multiprocesso usando o Core desta instância.
+   * O worker recebe apenas as opções serializáveis suportadas pelo WexelOrchester;
+   * runners JS/Python, kernel, BusyBox, WebPink e adaptadores FS ainda não são encaminhados.
+   */
+  async createOrchester(options: Omit<WexelOrchesterOptions, "coreBytes"> = {}): Promise<WexelOrchester> {
+    const { WexelOrchester } = await import("./wexel-orchester.js");
+    return WexelOrchester.create({ ...options, coreBytes: this.options.coreBytes });
   }
 
   async createSandbox(options: SandboxOptions = {}): Promise<BackendSandbox> {
