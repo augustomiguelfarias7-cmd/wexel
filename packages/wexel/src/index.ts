@@ -420,4 +420,3 @@ export { runCurl, type CurlOptions, type CurlResult } from "./curl.js";
 export { WebPink, WebPinkClient, type WebPinkMessage, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
 export type { WexelCoreInstance } from "@wexel/core";
 
-export { WexelOrchester, type WexelOrchesterOptions, type WexelOrchesterEvent, type WexelOrchesterSandbox } from "./wexel-orchester.js";
