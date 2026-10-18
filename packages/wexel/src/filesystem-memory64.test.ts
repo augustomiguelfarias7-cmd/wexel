@@ -34,6 +34,11 @@ function makeCore(): WexelCoreInstance {
 }
 
 describe("WexelMemory64FileSystem", () => {
+  it("rejects root as a home directory instead of normalizing it to an empty path", () => {
+    expect(() => new WexelMemory64FileSystem(makeCore(), undefined, "/")).toThrow(/home inválido/i);
+    expect(() => new WexelMemory64FileSystem(makeCore(), undefined, "///")).toThrow(/home inválido/i);
+  });
+
   it("uses a 5 GiB logical quota by default without reserving it", () => {
     const fs = new WexelMemory64FileSystem(makeCore());
     expect(fs.quota.limitBytes).toBe(5 * 1024 ** 3);
