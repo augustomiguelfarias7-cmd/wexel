@@ -75,6 +75,23 @@ describe("WexelOrchester", () => {
     expect(orchestrator.listSandboxes()).toHaveLength(0);
   });
 
+  it("does not let a throwing observer callback prevent sandbox startup", async () => {
+    const orchestrator = WexelOrchester.create({
+      coreBytes: new Uint8Array([1]),
+      workerPath: await makeFakeWorker(),
+      startupTimeoutMs: 3000,
+      onEvent: (event) => {
+        if (event.type === "sandbox-starting") throw new Error("observer failure");
+      },
+    });
+    try {
+      const sandbox = await orchestrator.createSandbox({ id: "OBS" });
+      expect(sandbox.status).toBe("ready");
+    } finally {
+      await orchestrator.dispose();
+    }
+  });
+
   it("rejects invalid and duplicate sandbox IDs", async () => {
     const orchestrator = WexelOrchester.create({
       coreBytes: new Uint8Array([1]),

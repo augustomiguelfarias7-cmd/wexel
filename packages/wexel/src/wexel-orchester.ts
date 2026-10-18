@@ -217,7 +217,11 @@ export class WexelOrchester {
     }, this.options.shutdownTimeoutMs ?? 2000);
     this.sandboxes.set(id, sandbox);
     try {
-      this.options.onEvent?.({ type: "sandbox-starting", sandboxId: id, pid: child.pid });
+      try {
+        this.options.onEvent?.({ type: "sandbox-starting", sandboxId: id, pid: child.pid });
+      } catch {
+        // Callbacks de observação não podem impedir a inicialização da sandbox.
+      }
       sandbox.sendInit({
         type: "init",
         coreBytes: new Uint8Array(this.coreBytes),
