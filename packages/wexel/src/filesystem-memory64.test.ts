@@ -65,7 +65,7 @@ describe("WexelMemory64FileSystem", () => {
 });
 
 it("integrates with the compiled Memory64 Core artifact", async () => {
-  const core = await instantiateCore(await readFile(coreSourceUrl()));
+  const core = await instantiateCore(await readFile(new URL(coreSourceUrl())));
   const fs = new WexelMemory64FileSystem(core);
   fs.mkdir("/home/integration/nested");
   fs.write("/home/integration/nested/core.txt", "stored in Core linear memory");
