@@ -32,6 +32,22 @@ These checks were executed directly against the compiled WASM artifact in an ear
 
 The 16 GiB check grew linear memory but did not write 16 GiB of file payload. These checks did not execute the TypeScript VFS integration test or WexelOrchester child-process/IPC tests.
 
+## Fresh load test executed on the compiled Memory64 artifact
+
+Executed directly with Node.js v22.16.0 against `build-memory64/wexel-core-memory64.wasm`, without Vitest:
+
+- **100,000 allocator operations passed**.
+- 50,589 allocations and 49,411 frees.
+- Peak of 1,201 simultaneous live blocks.
+- 26,216,175 cumulative payload bytes written and verified.
+- No overlapping live allocations and no payload corruption.
+- All remaining live blocks were verified and freed during cleanup.
+- Measured throughput: **30,909 operations/second** (3,235.3 ms total in this run).
+
+The existing artifact smoke test also passed: 64-bit pointers, configured 16 GiB limit, allocation/free/reuse, and growth of linear memory to 16 GiB. The 16 GiB check grows virtual linear memory; it does not write 16 GiB of payload. A separate worker-process test passed for two distinct child processes, IPC requests/results, process isolation, and graceful shutdown.
+
+The worker-process test exercises the process protocol harness, not the full `WexelOrchester` TypeScript class. The two original Vitest files are not represented as having passed.
+
 ## Static-review findings fixed in the PR
 
 - Preserved the terminal `failed` state when destroying a sandbox whose child process had already exited; a regression test was added.
