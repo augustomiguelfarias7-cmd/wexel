@@ -1,8 +1,11 @@
 import { Wexel } from "./index.js";
 import type { ExecRequest } from "./index.js";
+import { WebPink, type WebPinkOptions } from "./web-pink.js";
+
+type SerializableWebPinkOptions = Omit<WebPinkOptions, "fetcher">;
 
 type Message =
-  | { type: "init"; coreBytes: Uint8Array; permissions?: { network?: boolean; storage?: boolean; files?: boolean; modules?: boolean }; storageQuotaBytes?: number; homeDirectory?: string }
+  | { type: "init"; sandboxId: string; coreBytes: Uint8Array; permissions?: { network?: boolean; storage?: boolean; files?: boolean; modules?: boolean }; storageQuotaBytes?: number; homeDirectory?: string; webPinkOptions?: SerializableWebPinkOptions }
   | { type: "exec"; requestId: string; request: ExecRequest }
   | { type: "shutdown" };
 
@@ -14,11 +17,22 @@ process.on("message", async (message: Message) => {
     if (message.type === "init") {
       if (initializing || runtime) throw new Error("Worker já inicializado.");
       initializing = true;
+      const webPink = message.webPinkOptions
+        ? new WebPink(message.webPinkOptions).createClient(message.sandboxId)
+        : undefined;
+      const networkFetch: typeof fetch = (async (input, init) => {
+        if (message.permissions?.network !== true) {
+          throw new Error("Permissão de rede negada para esta sandbox.");
+        }
+        if (webPink) return webPink.fetch(input, init);
+        return fetch(input, init);
+      }) as typeof fetch;
       runtime = await Wexel.create({
         coreBytes: message.coreBytes,
         permissions: message.permissions,
         storageQuotaBytes: message.storageQuotaBytes,
         homeDirectory: message.homeDirectory,
+        networkFetch,
       });
       if (!process.send) throw new Error("Canal IPC indisponível.");
       process.send({ type: "ready" });
