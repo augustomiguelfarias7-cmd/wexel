@@ -131,6 +131,8 @@ class ManagedSandbox implements WexelOrchesterSandbox {
 
   async stop(): Promise<void> {
     if (this.status === "stopped") return;
+    // Preserve the terminal failure state when the child has already exited unexpectedly.
+    if (this.status === "failed" && (this.child.exitCode !== null || this.child.signalCode !== null)) return;
     this.status = "stopping";
 
     try {
