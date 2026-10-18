@@ -25,4 +25,4 @@ COMMON=(--target=wasm64-unknown-unknown -O2 -nostdlib -fno-exceptions -fno-rtti 
 python3 tools/strip-unused-table.py "$OUT_DIR/wexel-core-memory64.wasm" "$OUT_DIR/wexel-core-memory64.wasm.compat.tmp"
 mv "$OUT_DIR/wexel-core-memory64.wasm.compat.tmp" "$OUT_DIR/wexel-core-memory64.wasm"
 echo "Created $OUT_DIR/wexel-core-memory64.wasm"
-echo "Run a real Memory64 test with: node --experimental-wasm-memory64 tools/test-memory64.mjs"
+echo "Run the Memory64 allocator test with: node --experimental-wasm-memory64 tools/test-memory64.mjs"
