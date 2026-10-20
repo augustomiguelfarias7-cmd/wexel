@@ -18,7 +18,7 @@ export interface WebPinkOptions {
   requestTimeoutMs?: number;
   maxResponseBytes?: number;
   policyJson?: string;
-  /** Resolved IPs for a hostname. Node's default fetch uses DNS validation automatically when no custom fetcher is supplied. */
+  /** Resolve a hostname to all IPs. Required with custom fetchers when DNS destinations must be checked. */
   resolveHost?: (hostname: string) => Promise<string[]>;
 }
 
@@ -70,7 +70,7 @@ export class WebPink {
 
   constructor(private readonly options: WebPinkOptions = {}) {
     this.fetcher = options.fetcher ?? fetch;
-    this.resolveHost = options.resolveHost ?? (options.fetcher ? undefined : createDefaultHostResolver());
+    this.resolveHost = options.resolveHost ?? createDefaultHostResolver();
     this.defaultPolicy = options.policyJson ? parseWebPinkNetlifyPolicy(options.policyJson) : undefined;
   }
 
@@ -324,7 +324,7 @@ function isPrivateIp(host: string): boolean {
   // benchmarking, multicast, reserved and other non-public IPv4 ranges.
   return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) || (a === 192 && b === 0) ||
+    (a === 100 && b >= 64 && b <= 127) || (a === 192 && b === 0 && c === 0) ||
     (a === 192 && b === 0 && c === 2) || (a === 192 && b === 88 && c === 99) ||
     (a === 198 && (b === 18 || b === 19 || b === 51 && c === 100)) ||
     (a === 203 && b === 0 && c === 113) || a >= 224;
