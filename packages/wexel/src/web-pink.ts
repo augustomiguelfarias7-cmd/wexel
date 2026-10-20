@@ -18,6 +18,8 @@ export interface WebPinkOptions {
   requestTimeoutMs?: number;
   maxResponseBytes?: number;
   policyJson?: string;
+  /** Resolve a hostname to all IPs. Required with custom fetchers when DNS destinations must be checked. */
+  resolveHost?: (hostname: string) => Promise<string[]>;
 }
 
 export interface WebPinkSandboxPolicy {
@@ -63,10 +65,12 @@ export class WebPinkClient {
 export class WebPink {
   private readonly clients = new Map<string, WebPinkClient>();
   private readonly fetcher: typeof fetch;
+  private readonly resolveHost?: (hostname: string) => Promise<string[]>;
   private readonly defaultPolicy?: WebPinkNetlifyPolicy;
 
   constructor(private readonly options: WebPinkOptions = {}) {
     this.fetcher = options.fetcher ?? fetch;
+    this.resolveHost = options.resolveHost ?? createDefaultHostResolver();
     this.defaultPolicy = options.policyJson ? parseWebPinkNetlifyPolicy(options.policyJson) : undefined;
   }
 
@@ -98,6 +102,7 @@ export class WebPink {
       (item): item is WebPinkNetlifyPolicy => item !== undefined,
     );
     this.assertAllowed(url, sandboxPolicy, policies);
+    await this.assertResolvedAddressesAllowed(url, sandboxPolicy, policies);
 
     const controller = new AbortController();
     const timeout = this.options.requestTimeoutMs && this.options.requestTimeoutMs > 0
@@ -166,6 +171,24 @@ export class WebPink {
         (matchesUrl(url, policy.allowUrls) || matchesHost(host, policy.allowHosts)));
     if (isUnsafeHost(host) && !internalException) {
       throw new Error(`Web Pink Netlify bloqueou host local, privado ou suspeito: ${url.hostname}`);
+    }
+  }
+
+  private async assertResolvedAddressesAllowed(url: URL, sandbox: WebPinkSandboxPolicy, policies: WebPinkNetlifyPolicy[]): Promise<void> {
+    const host = normalizeHost(url.hostname);
+    if (!this.resolveHost || isIpLiteral(host)) return;
+    let addresses: string[];
+    try {
+      addresses = await this.resolveHost(host);
+    } catch {
+      throw new Error(`Web Pink bloqueou host que não pôde ser resolvido com segurança: ${host}`);
+    }
+    if (addresses.length === 0) throw new Error(`Web Pink bloqueou host sem endereços DNS: ${host}`);
+    const internalException = sandbox.allowInternal === true && policies.length > 0 &&
+      policies.every((policy) => policy.allowInternal === true &&
+        (matchesUrl(url, policy.allowUrls) || matchesHost(host, policy.allowHosts)));
+    if (addresses.some((address) => isUnsafeHost(normalizeHost(address))) && !internalException) {
+      throw new Error(`Web Pink bloqueou DNS que resolve para endereço local, privado ou reservado: ${host}`);
     }
   }
 
@@ -244,6 +267,16 @@ export function parseWebPinkNetlifyPolicy(json: string): WebPinkNetlifyPolicy {
 
 function normalizeHost(host: string): string { return host.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, ""); }
 
+function createDefaultHostResolver(): ((hostname: string) => Promise<string[]>) | undefined {
+  if (typeof process === "undefined" || !process.versions?.node) return undefined;
+  return async (hostname: string) => {
+    // Variable-based import keeps the Node-only resolver out of browser bundles.
+    const moduleName = "node:dns/promises";
+    const dns = await import(moduleName) as { lookup: (host: string, options: { all: true; verbatim: true }) => Promise<Array<{ address: string }>> };
+    return (await dns.lookup(hostname, { all: true, verbatim: true })).map((entry) => entry.address);
+  };
+}
+
 function matchesHost(host: string, patterns?: string[]): boolean {
   if (!patterns) return false;
   return patterns.some((pattern) => {
@@ -276,10 +309,23 @@ function isIpLiteral(host: string): boolean {
 function isPrivateIp(host: string): boolean {
   if (host.includes(":")) {
     const ip = host.toLowerCase();
-    return ip === "::" || ip === "::1" || ip.startsWith("fe8") || ip.startsWith("fe9") || ip.startsWith("fea") || ip.startsWith("feb") || ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("::ffff:127.") || ip.startsWith("::ffff:10.") || ip.startsWith("::ffff:192.168.");
+    // Only globally routable IPv6 unicast (2000::/3) is allowed by default.
+    // This also blocks unspecified, loopback, link-local, ULA, multicast,
+    // IPv4-mapped IPv6, NAT64 and other special-purpose ranges by default.
+    const firstHextet = Number.parseInt(ip.split(":")[0] || "0", 16);
+    if (!Number.isInteger(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff) return true;
+    if (ip.startsWith("2001:db8:") || ip.startsWith("2001:10:") || ip.startsWith("2002:")) return true;
+    return false;
   }
   const octets = host.split(".").map(Number);
   if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-  const [a, b] = octets;
-  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  const [a, b, c] = octets;
+  // Private, loopback, link-local, shared address space, documentation,
+  // benchmarking, multicast, reserved and other non-public IPv4 ranges.
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) || (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 0 && c === 2) || (a === 192 && b === 88 && c === 99) ||
+    (a === 198 && (b === 18 || b === 19 || b === 51 && c === 100)) ||
+    (a === 203 && b === 0 && c === 113) || a >= 224;
 }
