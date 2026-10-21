@@ -1,27 +1,27 @@
 import type { ExecResult } from "./index.js";
 import { createKernelBusyBoxConnector, type BootedKernel } from "./kernel-busybox-connector.js";
 
-/**
- * WexelShell: substitui o antigo shell de ~40 comandos reimplementados a mao
- * por este conector, que manda os comandos de verdade pro BusyBox rodando
- * dentro do kernel Linux-WASM ja inicializado (ver kernel-busybox-connector.ts).
- *
- * Quem cria esta instancia precisa ja ter um kernel inicializado (chamando
- * linux(...) de linux-node.js ou linux-browser equivalente) e uma funcao
- * captureOutput ligada ao console_write usado nesse boot - essa parte (o
- * boot do kernel em si) ainda precisa ser conectada em algum ponto do
- * NodeExecution; este arquivo so recebe o kernel ja pronto.
- */
-export class WexelShell {
-  private readonly connector: ReturnType<typeof createKernelBusyBoxConnector>;
+type ShellRunner = (command: string) => Promise<ExecResult>;
 
-  constructor(kernel: BootedKernel, captureOutput: (listener: (chunk: string) => void) => () => void) {
-    this.connector = createKernelBusyBoxConnector(kernel, captureOutput);
+/** BusyBox continua sendo o shell do Wexel. Pode ser ligado a uma sessão
+ * interativa herdada ou executado pelo runner WASM de cada comando. */
+export class WexelShell {
+  private readonly connector?: ReturnType<typeof createKernelBusyBoxConnector>;
+  private readonly runner?: ShellRunner;
+
+  constructor(kernelOrRunner: BootedKernel | ShellRunner, captureOutput?: (listener: (chunk: string) => void) => () => void) {
+    if (typeof kernelOrRunner === "function") {
+      this.runner = kernelOrRunner;
+    } else {
+      if (!captureOutput) throw new Error("WexelShell requer captura de saída para uma sessão de kernel.");
+      this.connector = createKernelBusyBoxConnector(kernelOrRunner, captureOutput);
+    }
   }
 
   async exec(command: string): Promise<ExecResult> {
+    if (this.runner) return this.runner(command);
     const tokens = command.trim().split(/\s+/).filter(Boolean);
     if (!tokens.length) return { stdout: "", stderr: "", exitCode: 0 };
-    return this.connector.run({ args: tokens });
+    return this.connector!.run({ args: tokens });
   }
 }
