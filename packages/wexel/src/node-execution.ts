@@ -5,7 +5,7 @@ import { nodeWasiPythonRunnerFactory, type NodeWasiPythonOptions } from "./node-
 import { Wexel, type WexelPermissions, type WexelRuntime, type ExecResult } from "./index.js";
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
-import { bootKernel } from "./kernel-boot.js";
+import { S1Kernel, type S1KernelOptions } from "./s1-kernel.js";
 import type { WexelOrchester, WexelOrchesterOptions } from "./wexel-orchester.js";
 
 export interface NodeExecutionBusyBoxOptions {
@@ -162,14 +162,14 @@ export class NodeExecution {
 
   destroySandbox(id: string): boolean {
     this.webPink?.removeClient(id);
-    this.kernelBoots.delete(id);
+    this.sKernels.delete(id);
     return this.sandboxes.delete(id);
   }
 
   async dispose(): Promise<void> {
     for (const id of this.sandboxes.keys()) this.webPink?.removeClient(id);
     this.sandboxes.clear();
-    this.kernelBoots.clear();
+    this.sKernels.clear();
   }
 }
 
