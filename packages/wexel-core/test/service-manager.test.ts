@@ -30,6 +30,24 @@ describe("WexelServiceManager", () => {
     expect(manager.getState("second")).toBe("failed");
   });
 
+  it("does not stop a service that was already running before a failed startup", async () => {
+    const manager = new WexelServiceManager();
+    const calls: string[] = [];
+    manager.register("existing", {
+      start: () => { calls.push("start:existing"); },
+      stop: () => { calls.push("stop:existing"); },
+    });
+    manager.register("failing", { start: () => { throw new Error("startup failed"); } });
+
+    await manager.start("existing");
+    calls.length = 0;
+
+    await expect(manager.startAll()).rejects.toThrow("startup failed");
+    expect(calls).toEqual([]);
+    expect(manager.getState("existing")).toBe("running");
+    expect(manager.getState("failing")).toBe("failed");
+  });
+
   it("rejects duplicate names and reports service state", async () => {
     const manager = new WexelServiceManager();
     manager.register("cache", {});
