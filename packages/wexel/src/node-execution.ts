@@ -116,9 +116,11 @@ export class NodeExecution {
     }) as typeof fetch;
 
     // Cada sandbox recebe uma instância isolada do kernel S1.
-    const sKernel = this.options.sKernel
-      ? await S1Kernel.boot({ ...this.options.sKernel, allowNetwork: options.permissions?.network === true && this.options.sKernel.allowNetwork === true })
-      : undefined;
+    const sKernelOptions = this.options.sKernel ?? {};
+    const sKernel = await S1Kernel.boot({
+      ...sKernelOptions,
+      allowNetwork: options.permissions?.network === true && sKernelOptions.allowNetwork === true,
+    });
 
     const sandboxBusyBox = this.options.busyBox
       ? await createBusyBoxRunner(
@@ -127,7 +129,7 @@ export class NodeExecution {
         )
       : undefined;
 
-    if (sKernel && this.options.busyBox) {
+    if (this.options.busyBox) {
       const registered = sKernel.registerService("busybox", 1);
       if (registered < 0 && registered !== -17) throw new Error(`S1 não conseguiu registrar BusyBox: ${registered}`);
       const started = sKernel.startService("busybox");
@@ -158,7 +160,7 @@ export class NodeExecution {
     });
 
     const sandbox = { id, runtime, createdAt: Date.now(), webPink, sKernel };
-    if (sKernel) this.sKernels.set(id, sKernel);
+    this.sKernels.set(id, sKernel);
     this.sandboxes.set(id, sandbox);
     return sandbox;
   }
