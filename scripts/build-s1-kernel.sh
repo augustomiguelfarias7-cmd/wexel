@@ -18,7 +18,7 @@ fi
 mkdir -p "$(dirname "$OUT")"
 "$CLANGXX" --target=wasm32-unknown-unknown -std=c++20 -O2 \
   -ffreestanding -fno-exceptions -fno-rtti -fno-threadsafe-statics \
-  -fno-builtin -nostdlib "$SRC" -o "$OUT" \
-  -Wl,--no-entry -Wl,--export-all -Wl,--allow-undefined \
+  -fno-builtin -nostdlib "$SRC" "$ABI" -o "$OUT" \
+  -Wl,--no-entry -Wl,--export-all -Wl,--export-memory -Wl,--allow-undefined \
   -Wl,--initial-memory=16777216 -Wl,--max-memory=268435456
 echo "S1 built: $OUT"
