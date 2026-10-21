@@ -38,7 +38,7 @@ describe("Wexel runtime", () => {
       coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)),
       pythonRunnerFactory: () => {
         loads += 1;
-        return async () => ({ stdout: "python ready\\n", stderr: "", exitCode: 0 });
+        return async () => ({ stdout: "python ready\n", stderr: "", exitCode: 0 });
       },
     });
 
@@ -54,7 +54,7 @@ describe("Wexel runtime", () => {
     await rt.recoverComponent("executor:python");
     expect(loads).toBe(2);
     expect(rt.lifecycle.state).toBe("running");
-    expect((await rt.exec({ language: "python", code: "print('ready')" })).stdout).toBe("python ready\\n");
+    expect((await rt.exec({ language: "python", code: "print('ready')" })).stdout).toBe("python ready\n");
   });
 
   it("interpreta um programa Go pela toolchain Yaegi embutida", async () => {
