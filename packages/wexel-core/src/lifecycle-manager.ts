@@ -104,6 +104,12 @@ export class WexelLifecycleManager {
   async recoverComponent(name: string): Promise<void> {
     const component = this.requireComponent(name);
     if (component.recovery) return component.recovery;
+    // Serialize component recovery, but don't mark a second component as
+    // recovering until the active recovery has released the runtime lock.
+    if (this.recovery) {
+      await this.recovery;
+      return this.recoverComponent(name);
+    }
     if (this.currentState === "stopping" || this.currentState === "stopped") {
       throw new Error(`Não é possível recuperar componentes no estado ${this.currentState}.`);
     }
