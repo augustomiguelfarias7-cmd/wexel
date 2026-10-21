@@ -1,4 +1,4 @@
-import { instantiateCore, type WexelCoreInstance } from "@wexel/core";
+import { instantiateCore, WexelServiceManager, type WexelCoreInstance } from "@wexel/core";
 import { WexelArtifactManager, type LoadArtifactOptions } from "./artifact-manager.js";
 import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
@@ -55,6 +55,8 @@ export interface WexelOptions {
   /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG, ver assets/wexeljs/edgejs.wasm). */
   wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
   bashRunner?: (args: string[]) => Promise<ExecResult> | ExecResult;
+  /** Executa comandos por um serviço de shell inicializado para o runtime. */
+  shellRunner?: (command: string) => Promise<ExecResult> | ExecResult;
   networkFetch?: typeof fetch;
   pypiIndexUrl?: string;
   v9?: V9Document;
@@ -75,22 +77,15 @@ export interface WexelOptions {
   /** Optional Zig standard-library archive for the legacy zigc-wasm compiler adapter. */
   zigStdZip?: BufferSource | string;
   nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
-  /**
-   * Kernel Linux-WASM ja inicializado (retorno de linux(...) em
-   * linux-node.js/linux-browser.js) e a funcao de captura de saida ligada ao
-   * console_write usado nesse boot. Sem os dois, this.shell fica undefined —
-   * o boot do kernel em si ainda precisa ser feito por quem monta o
-   * NodeExecution, antes de passar pra ca.
-   */
-  kernel?: import("./kernel-busybox-connector.js").BootedKernel;
-  kernelOutput?: (listener: (chunk: string) => void) => () => void;
 }
 
 // ── WexelRuntime ──────────────────────────────────────────────────────────────
 
 export class WexelRuntime {
-  /** undefined ate que options.kernel + options.kernelOutput sejam fornecidos (kernel ja precisa estar de pe). */
-  readonly shell?:      WexelShell;
+  /** Interface de comandos disponível quando um shellRunner é configurado. */
+  readonly shell?: WexelShell;
+  /** Gerencia o ciclo de vida dos serviços pertencentes a este runtime. */
+  readonly services = new WexelServiceManager();
   readonly permissions: Required<WexelPermissions>;
   readonly fs:          WexelFileSystemLike;
   readonly artifacts:   WexelArtifactManager;
@@ -126,10 +121,7 @@ export class WexelRuntime {
     this.packages     = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl, fetcher: this.networkFetch });
     this.permissions  = { network: false, storage: true, files: false, modules: true, ...options.permissions };
     this.artifacts    = new WexelArtifactManager(() => this.permissions.modules);
-    if (options.kernel && options.kernelOutput) {
-      this.shell = new WexelShell(options.kernel, options.kernelOutput);
-    }
-    // sem kernel+kernelOutput, this.shell fica undefined (ver WexelOptions.kernel)
+    if (options.shellRunner) this.shell = new WexelShell(options.shellRunner);
   }
 
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
@@ -144,7 +136,8 @@ export class WexelRuntime {
       imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
     }));
     for (const ext of options.nativeExtensions ?? []) await runtime.loadNativeExtension(ext.manifest, ext.source);
-    runtime.buzz.emit("runtime:ready", { mode: runtime.mode });
+    runtime.services.register("runtime", { start: () => runtime.buzz.emit("runtime:ready", { mode: runtime.mode }) });
+    await runtime.services.startAll();
     return runtime;
   }
 
@@ -223,11 +216,9 @@ export class WexelRuntime {
       if (!language) return { stdout: "", stderr: `wexeljs: extensão não suportada: ${target}\n`, exitCode: 2 };
       return this.exec({ language, file: target, args: scriptArgs });
     }
-    // instalação de pacotes agora é feita pelo npm/pnpm reais embutidos no
-    // proprio Wexel.js (ver assets/wexeljs/pnpm.cjs), não por um gerenciador
-    // separado — delega pro shell (BusyBox+kernel) rodando o binario real.
+    // A instalação delega para o serviço de shell configurado pelo ambiente.
     if (command === "add" || command === "install") {
-      if (!this.shell) return { stdout: "", stderr: "Shell (BusyBox/kernel) não foi registrado.\n", exitCode: 2 };
+      if (!this.shell) return { stdout: "", stderr: "Shell não foi registrado. Configure shellRunner ao criar o runtime.\n", exitCode: 2 };
       return this.shell.exec(`pnpm install ${target ?? ""} ${scriptArgs.join(" ")}`.trim());
     }
     return { stdout: "", stderr: "Uso: wexeljs run <arquivo.js|.ts> | wexeljs eval <código> | wexeljs add <pkg> | wexeljs --version\n", exitCode: 2 };
