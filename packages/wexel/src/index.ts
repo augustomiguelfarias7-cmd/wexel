@@ -206,6 +206,11 @@ export class WexelRuntime {
     });
   }
 
+  /** Marks a failed integration as degraded so the lifecycle manager can recover it. */
+  reportComponentFailure(name: string, error: unknown): void {
+    this.lifecycle.reportComponentFailure(name, error);
+  }
+
   /** Reinitializes one registered integration using its original initializer. */
   async recoverComponent(name: string): Promise<void> {
     await this.lifecycle.recoverComponent(name);
