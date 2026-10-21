@@ -77,15 +77,6 @@ export interface WexelOptions {
   /** Optional Zig standard-library archive for the legacy zigc-wasm compiler adapter. */
   zigStdZip?: BufferSource | string;
   nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
-  /**
-   * Kernel Linux-WASM ja inicializado (retorno de linux(...) em
-   * linux-node.js/linux-browser.js) e a funcao de captura de saida ligada ao
-   * console_write usado nesse boot. Sem os dois, this.shell fica undefined —
-   * o boot do kernel em si ainda precisa ser feito por quem monta o
-   * NodeExecution, antes de passar pra ca.
-   */
-  kernel?: import("./kernel-busybox-connector.js").BootedKernel;
-  kernelOutput?: (listener: (chunk: string) => void) => () => void;
 }
 
 // ── WexelRuntime ──────────────────────────────────────────────────────────────
