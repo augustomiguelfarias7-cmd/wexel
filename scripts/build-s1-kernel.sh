@@ -4,6 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLANGXX="${CLANGXX:-clang++}"
 OUT="$ROOT/packages/wexel/assets/s-kernel/s1.wasm"
 SRC="$ROOT/kernel/s1/s1.cpp"
+ABI="$ROOT/kernel/s1/abi.cpp"
 
 if ! command -v "$CLANGXX" >/dev/null 2>&1; then
   echo "Clang++ is required to build the S1 WebAssembly kernel." >&2
