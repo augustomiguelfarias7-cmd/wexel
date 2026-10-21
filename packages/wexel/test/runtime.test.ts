@@ -67,6 +67,11 @@ func main() { fmt.Println("Go interpretado no WASM") }
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("Go interpretado no WASM\n");
     expect(result.stderr).toBe("");
+    expect(rt.lifecycle.componentSnapshots()).toContainEqual({
+      name: "executor:go-bundled",
+      state: "ready",
+      required: true,
+    });
   });
   it("compila Zig com o compilador WASM, guarda o binário na VFS e executa via WASI", async () => {
     const rt = await runtime();
