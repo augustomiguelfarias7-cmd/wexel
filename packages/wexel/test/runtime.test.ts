@@ -15,9 +15,18 @@ describe("Wexel runtime", () => {
     expect(rt.fs.exists("/home/wexel")).toBe(true);
     expect(rt.core.exports.memory).toBeInstanceOf(WebAssembly.Memory);
   });
-  it("expõe o estado de vida do runtime e recupera os serviços registrados", async () => {
+  it("tracks service failures and recovers the runtime lifecycle", async () => {
     const rt = await runtime();
     expect(rt.lifecycle.state).toBe("running");
+
+    rt.services.register("broken-service", {
+      start: () => { throw new Error("service unavailable"); },
+    });
+    await expect(rt.services.start("broken-service")).rejects.toThrow("service unavailable");
+    expect(rt.lifecycle.state).toBe("degraded");
+    expect(rt.lifecycle.snapshot().reason).toContain("broken-service");
+    expect(rt.services.remove("broken-service")).toBe(true);
+
     await rt.recoverServices();
     expect(rt.lifecycle.state).toBe("running");
     await rt.shutdown();
