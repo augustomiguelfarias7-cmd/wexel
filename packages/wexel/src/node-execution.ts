@@ -6,6 +6,8 @@ import { Wexel, type WexelPermissions, type WexelRuntime, type ExecResult } from
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
 import { S1Kernel, type S1KernelOptions } from "./s1-kernel.js";
+export { S1Kernel } from "./s1-kernel.js";
+export type { S1KernelOptions, S1SocketHost } from "./s1-kernel.js";
 import type { WexelOrchester, WexelOrchesterOptions } from "./wexel-orchester.js";
 
 export interface NodeExecutionBusyBoxOptions {
