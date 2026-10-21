@@ -8,7 +8,7 @@ multiC
 
 wexel.js(Edge.js + quick.js-NG)
 
-Kernel Linux(kernel boot for WebAssembly)  
+Core Memory64 + gerenciamento do ciclo de vida dos serviços
 
 C and C++
 
