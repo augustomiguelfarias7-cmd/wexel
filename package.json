@@ -13,6 +13,7 @@
     "typecheck": "npm run typecheck --workspace=wexel",
     "clean": "rm -rf packages/*/dist",
     "build:busybox": "bash scripts/build-busybox.sh",
+    "build:s1": "bash scripts/build-s1-kernel.sh",
     "bootstrap:emscripten": "bash scripts/bootstrap-emscripten.sh",
     "prepare:deno-native": "node scripts/prepare-deno-native.mjs"
   },
