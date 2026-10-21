@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export interface S1SocketHost {
   open(domain: number, type: number, protocol: number): number;
@@ -46,7 +47,8 @@ export class S1Kernel {
 
   static async boot(options: S1KernelOptions): Promise<S1Kernel> {
     let wasmBytes = options.wasmBytes;
-    if (!wasmBytes && options.wasmPath) wasmBytes = fs.readFileSync(options.wasmPath);
+    const wasmPath = options.wasmPath ?? fileURLToPath(new URL("../assets/s-kernel/s1.wasm", import.meta.url));
+    if (!wasmBytes) wasmBytes = fs.readFileSync(wasmPath);
     if (!wasmBytes) throw new Error("S1 requer wasmBytes ou wasmPath.");
 
     let instanceRef: WebAssembly.Instance | undefined;
