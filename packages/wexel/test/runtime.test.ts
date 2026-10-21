@@ -15,6 +15,14 @@ describe("Wexel runtime", () => {
     expect(rt.fs.exists("/home/wexel")).toBe(true);
     expect(rt.core.exports.memory).toBeInstanceOf(WebAssembly.Memory);
   });
+  it("expõe o estado de vida do runtime e recupera os serviços registrados", async () => {
+    const rt = await runtime();
+    expect(rt.lifecycle.state).toBe("running");
+    await rt.recoverServices();
+    expect(rt.lifecycle.state).toBe("running");
+    await rt.shutdown();
+    expect(rt.lifecycle.state).toBe("stopped");
+  });
   it("interpreta um programa Go pela toolchain Yaegi embutida", async () => {
     const rt = await runtime();
     rt.fs.write("/home/main.go", `package main
