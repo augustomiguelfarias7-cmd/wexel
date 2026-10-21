@@ -55,6 +55,8 @@ export interface WexelOptions {
   /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG, ver assets/wexeljs/edgejs.wasm). */
   wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
   bashRunner?: (args: string[]) => Promise<ExecResult> | ExecResult;
+  /** Runner do BusyBox real usado por WexelShell sem depender de um kernel Linux legado. */
+  shellRunner?: (command: string) => Promise<ExecResult>;
   networkFetch?: typeof fetch;
   pypiIndexUrl?: string;
   v9?: V9Document;
