@@ -1,4 +1,4 @@
-import { instantiateCore, WexelServiceManager, type WexelCoreInstance } from "@wexel/core";
+import { instantiateCore, WexelLifecycleManager, WexelServiceManager, type WexelCoreInstance } from "@wexel/core";
 import { WexelArtifactManager, type LoadArtifactOptions } from "./artifact-manager.js";
 import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
@@ -86,6 +86,8 @@ export class WexelRuntime {
   readonly shell?: WexelShell;
   /** Gerencia o ciclo de vida dos serviços pertencentes a este runtime. */
   readonly services = new WexelServiceManager();
+  /** Acompanha o estado do runtime e coordena recuperação de serviços. */
+  readonly lifecycle = new WexelLifecycleManager();
   readonly permissions: Required<WexelPermissions>;
   readonly fs:          WexelFileSystemLike;
   readonly artifacts:   WexelArtifactManager;
@@ -127,18 +129,49 @@ export class WexelRuntime {
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
     const bytes   = options.coreBytes ?? await defaultCoreBytes();
     const runtime = new WexelRuntime(await instantiateCore(bytes), options);
-    if (options.goExecutorBytes) runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({
-      language: "go", artifact: options.goExecutorBytes, fs: runtime.fs,
-      imports: options.goExecutorImports, wasmExecJs: options.goWasmExecJs,
-    }));
-    if (options.zigExecutorBytes) runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({
-      language: "zig", artifact: options.zigExecutorBytes, fs: runtime.fs,
-      imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
-    }));
-    for (const ext of options.nativeExtensions ?? []) await runtime.loadNativeExtension(ext.manifest, ext.source);
-    runtime.services.register("runtime", { start: () => runtime.buzz.emit("runtime:ready", { mode: runtime.mode }) });
-    await runtime.services.startAll();
-    return runtime;
+    runtime.lifecycle.starting();
+    try {
+      if (options.goExecutorBytes) runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({
+        language: "go", artifact: options.goExecutorBytes, fs: runtime.fs,
+        imports: options.goExecutorImports, wasmExecJs: options.goWasmExecJs,
+      }));
+      if (options.zigExecutorBytes) runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({
+        language: "zig", artifact: options.zigExecutorBytes, fs: runtime.fs,
+        imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
+      }));
+      for (const ext of options.nativeExtensions ?? []) await runtime.loadNativeExtension(ext.manifest, ext.source);
+      runtime.services.register("runtime", { start: () => runtime.buzz.emit("runtime:ready", { mode: runtime.mode }) });
+      await runtime.services.startAll();
+      runtime.lifecycle.running();
+      return runtime;
+    } catch (error) {
+      runtime.lifecycle.failed(error instanceof Error ? error.message : String(error));
+      try { await runtime.services.stopAll(); } catch { /* preserve the initialization error */ }
+      throw error;
+    }
+  }
+
+  /**
+   * Reinitializes registered services after an incomplete startup or service failure.
+   * Process death itself must be detected by the external Node.js supervisor.
+   */
+  async recoverServices(): Promise<void> {
+    await this.lifecycle.recover(async () => {
+      await this.services.stopAll();
+      await this.services.startAll();
+    });
+  }
+
+  /** Stops runtime-owned services and records the terminal lifecycle state. */
+  async shutdown(): Promise<void> {
+    this.lifecycle.stopping();
+    try {
+      await this.services.stopAll();
+      this.lifecycle.stopped();
+    } catch (error) {
+      this.lifecycle.failed(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   // ── exec principal ─────────────────────────────────────────────────────────
