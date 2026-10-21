@@ -17,7 +17,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 
 - WebAssembly-first execution
 - **New in 4.0:** Wexel.js — Node.js-compatible JS runtime (based on Edge.js + QuickJS-NG), compiled through the real WASIX toolchain, with `npm`/`pnpm` built in
-- **Core services:** Memory64 allocation and service lifecycle management are provided by `@wexel/core`; sandbox startup is managed by `NodeExecution`.
+- **Core services:** `@wexel/core` provides Memory64 allocation, the VFS integration point, service management, and runtime lifecycle tracking/recovery. Each Node.js sandbox gets its own WebAssembly Memory64 instance; browser use remains one runtime instance per created environment.
 - Optional BusyBox WebAssembly command runner, initialized as part of each sandbox environment
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
 - **New in 4.0:** Go runs through the Yaegi interpreter compiled to WebAssembly; Zig source is compiled by a Zig compiler also compiled to WebAssembly, then the generated WASI module is stored in the Memory64 VFS and executed. Both toolchains load lazily from bundled assets. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
@@ -90,6 +90,7 @@ Wexel Runtime
     │
     ├── Wexel.js (Edge.js + QuickJS-NG, Node-compatible)
     ├── Core service manager
+    ├── Runtime lifecycle (starting/running/degraded/recovering/stopped/failed)
     ├── CPython / WASI
     ├── Native WASM Extensions
     └── V9
@@ -120,7 +121,9 @@ Node.js / Express / Fastify / API
              WebPink
 ```
 
-Each sandbox is created independently and receives its own runtime instance and virtual filesystem.
+Each sandbox is created independently and receives its own runtime instance, WebAssembly Memory64 memory, and virtual filesystem. In a browser, a created runtime is one environment with its own memory and VFS.
+
+The runtime exposes `runtime.lifecycle.state` and `runtime.lifecycle.snapshot()` to inspect lifecycle state. `runtime.recoverServices()` attempts to stop and restart registered services; `runtime.shutdown()` stops them and records the terminal state. These APIs recover services while the owning process is alive. A completely exited Node.js process must be detected by the external supervisor, such as the existing WexelOrchester.
 
 ### Gestão de artefatos WebAssembly
 
