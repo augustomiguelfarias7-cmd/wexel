@@ -18,8 +18,8 @@ export interface NodeExecutionOptions {
   coreBytes: BufferSource;
   /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG). Ver assets/wexeljs/edgejs.wasm. */
   wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
-  /** Kernel Linux-WASM (ver kernel-boot.ts). Sem isso, sandbox.shell fica undefined. */
-  linuxKernel?: Parameters<typeof bootKernel>[0];
+  /** Kernel S1 compilado para WebAssembly; cada sandbox recebe estado isolado. */
+  sKernel?: S1KernelOptions;
   python?: Omit<WasiPythonOptions, "fs">;
   pythonWasi?: Omit<NodeWasiPythonOptions, "fs"> | false;
   busyBox?: NodeExecutionBusyBoxOptions;
@@ -42,13 +42,14 @@ export interface BackendSandbox {
   runtime: WexelRuntime;
   createdAt: number;
   webPink?: WebPinkClient;
+  sKernel?: S1Kernel;
 }
 
 export class NodeExecution {
   private readonly sandboxes = new Map<string, BackendSandbox>();
   readonly webPink?: WebPink;
-  /** Cada sandbox recebe seu próprio boot/kernel Linux-WASM. */
-  private readonly kernelBoots = new Map<string, Awaited<ReturnType<typeof bootKernel>>>();
+  /** Estado de kernel isolado por sandbox. */
+  private readonly sKernels = new Map<string, S1Kernel>();
 
   private constructor(private readonly options: NodeExecutionOptions, webPink?: WebPink) {
     this.webPink = webPink;
@@ -112,9 +113,9 @@ export class NodeExecution {
       return fetch(input, init);
     }) as typeof fetch;
 
-    // Não reutilizar a instância do kernel: cada sandbox precisa de estado isolado.
-    const kernelBoot = this.options.linuxKernel
-      ? await bootKernel(this.options.linuxKernel)
+    // Cada sandbox recebe uma instância isolada do kernel S1.
+    const sKernel = this.options.sKernel
+      ? await S1Kernel.boot({ ...this.options.sKernel, allowNetwork: options.permissions?.network === true && this.options.sKernel.allowNetwork === true })
       : undefined;
 
     const sandboxBusyBox = this.options.busyBox
@@ -124,10 +125,18 @@ export class NodeExecution {
         )
       : undefined;
 
+    if (sKernel && this.options.busyBox) {
+      const registered = sKernel.registerService("busybox", 1);
+      if (registered < 0 && registered !== -17) throw new Error(`S1 não conseguiu registrar BusyBox: ${registered}`);
+      const started = sKernel.startService("busybox");
+      if (started < 0 && started !== -17) throw new Error(`S1 não conseguiu iniciar BusyBox: ${started}`);
+    }
+
     const runtime = await Wexel.create({
       coreBytes: this.options.coreBytes,
-      kernel: kernelBoot?.kernel,
-      kernelOutput: kernelBoot?.kernelOutput,
+      shellRunner: sandboxBusyBox
+        ? async (command) => sandboxBusyBox.run({ args: ["busybox", "sh", "-c", command] })
+        : undefined,
       permissions: options.permissions,
       storageQuotaBytes: options.storageQuotaBytes,
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
@@ -146,8 +155,8 @@ export class NodeExecution {
       nativeExtensions: this.options.nativeExtensions,
     });
 
-    const sandbox = { id, runtime, createdAt: Date.now(), webPink };
-    if (kernelBoot) this.kernelBoots.set(id, kernelBoot);
+    const sandbox = { id, runtime, createdAt: Date.now(), webPink, sKernel };
+    if (sKernel) this.sKernels.set(id, sKernel);
     this.sandboxes.set(id, sandbox);
     return sandbox;
   }
