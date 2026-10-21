@@ -84,10 +84,12 @@ export interface WexelOptions {
 export class WexelRuntime {
   /** Interface de comandos disponível quando um shellRunner é configurado. */
   readonly shell?: WexelShell;
-  /** Gerencia o ciclo de vida dos serviços pertencentes a este runtime. */
-  readonly services = new WexelServiceManager();
   /** Acompanha o estado do runtime e coordena recuperação de serviços. */
   readonly lifecycle = new WexelLifecycleManager();
+  /** Gerencia serviços e sinaliza falhas ao monitor de ciclo de vida. */
+  readonly services = new WexelServiceManager((service) => {
+    this.lifecycle.degraded(`Serviço ${service.name} falhou: ${service.error ?? "erro desconhecido"}`);
+  });
   readonly permissions: Required<WexelPermissions>;
   readonly fs:          WexelFileSystemLike;
   readonly artifacts:   WexelArtifactManager;
