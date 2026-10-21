@@ -18,6 +18,8 @@ export interface WexelServiceSnapshot {
 export class WexelServiceManager {
   private readonly services = new Map<string, { service: WexelService; state: WexelServiceState; error?: string }>();
 
+  constructor(private readonly onServiceFailure?: (snapshot: WexelServiceSnapshot) => void) {}
+
   register(name: string, service: WexelService): void {
     if (!name.trim()) throw new Error("O nome do serviço não pode ser vazio.");
     if (this.services.has(name)) throw new Error(`Serviço já registrado: ${name}`);
@@ -51,6 +53,7 @@ export class WexelServiceManager {
     } catch (error) {
       item.state = "failed";
       item.error = error instanceof Error ? error.message : String(error);
+      this.onServiceFailure?.({ name, state: item.state, error: item.error });
       throw error;
     }
   }
@@ -88,6 +91,7 @@ export class WexelServiceManager {
     } catch (error) {
       item.state = "failed";
       item.error = error instanceof Error ? error.message : String(error);
+      this.onServiceFailure?.({ name, state: item.state, error: item.error });
       throw error;
     }
   }
