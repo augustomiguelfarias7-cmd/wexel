@@ -84,17 +84,24 @@ export class WexelLifecycleManager {
     }
     component.state = "initializing";
     component.error = undefined;
-    try {
-      await component.initialize();
-      component.state = "ready";
-      component.error = undefined;
-      this.refreshState();
-    } catch (error) {
-      component.state = "failed";
-      component.error = error instanceof Error ? error.message : String(error);
-      this.degraded(`Componente ${name} falhou ao inicializar: ${component.error}`);
-      throw error;
+    let lastError: unknown;
+    // A transient load failure gets one automatic retry before startup is
+    // considered degraded. The same policy applies to every registered component.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await component.initialize();
+        component.state = "ready";
+        component.error = undefined;
+        this.refreshState();
+        return;
+      } catch (error) {
+        lastError = error;
+      }
     }
+    component.state = "failed";
+    component.error = lastError instanceof Error ? lastError.message : String(lastError);
+    this.degraded(`Componente ${name} falhou ao inicializar após nova tentativa: ${component.error}`);
+    throw lastError;
   }
 
   async initializeComponents(): Promise<void> {
