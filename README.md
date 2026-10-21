@@ -21,7 +21,7 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 - Optional BusyBox WebAssembly command runner, initialized as part of each sandbox environment
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
 - **New in 4.0:** Go runs through the Yaegi interpreter compiled to WebAssembly; Zig source is compiled by a Zig compiler also compiled to WebAssembly, then the generated WASI module is stored in the Memory64 VFS and executed. Both toolchains load lazily from bundled assets. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
-- Virtual shell with `~` and configurable home directories
+- Optional shell service through a configured command runner
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
 - npm and pnpm through the real package managers bundled in Wexel.js
@@ -64,9 +64,9 @@ runtime.fs.write(
   "console.log('Hello from Wexel');",
 );
 
-const result = await runtime.shell.exec("cat /app.js");
+const source = runtime.fs.readText("/app.js");
 
-console.log(result);
+console.log(source);
 ```
 
 The runtime operates against its virtual filesystem instead of directly exposing the host filesystem.
@@ -149,6 +149,7 @@ import { Wexel } from "wexel";
 
 const runtime = await Wexel.create({
   wexelJsRunner: myWexelJsRunner, // executes code via assets/wexeljs/edgejs.wasm
+  shellRunner: myShellRunner, // optional command service for runtime.shell
   permissions: { network: true },
 });
 
