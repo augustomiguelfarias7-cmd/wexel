@@ -32,6 +32,31 @@ describe("Wexel runtime", () => {
     await rt.shutdown();
     expect(rt.lifecycle.state).toBe("stopped");
   });
+  it("supervisiona e recupera uma integração criada por factory", async () => {
+    let loads = 0;
+    const rt = await Wexel.create({
+      coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)),
+      pythonRunnerFactory: () => {
+        loads += 1;
+        return async () => ({ stdout: "python ready\\n", stderr: "", exitCode: 0 });
+      },
+    });
+
+    expect(loads).toBe(1);
+    expect(rt.lifecycle.componentSnapshots()).toContainEqual({
+      name: "executor:python",
+      state: "ready",
+      required: true,
+    });
+    rt.reportComponentFailure("executor:python", new Error("adapter lost"));
+    expect(rt.lifecycle.state).toBe("degraded");
+
+    await rt.recoverComponent("executor:python");
+    expect(loads).toBe(2);
+    expect(rt.lifecycle.state).toBe("running");
+    expect((await rt.exec({ language: "python", code: "print('ready')" })).stdout).toBe("python ready\\n");
+  });
+
   it("interpreta um programa Go pela toolchain Yaegi embutida", async () => {
     const rt = await runtime();
     rt.fs.write("/home/main.go", `package main
