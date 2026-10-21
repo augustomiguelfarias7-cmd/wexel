@@ -43,6 +43,6 @@ export function coreSourceUrl(): string {
 export { WexelServiceManager } from "./service-manager.js";
 export type { WexelService, WexelServiceSnapshot, WexelServiceState } from "./service-manager.js";
 export { WexelLifecycleManager } from "./lifecycle-manager.js";
-export type { WexelLifecycleSnapshot, WexelLifecycleState } from "./lifecycle-manager.js";
+export type { WexelComponentSnapshot, WexelComponentState, WexelLifecycleSnapshot, WexelLifecycleState } from "./lifecycle-manager.js";
 export { WexelFileSystem, WexelMemory64FileSystem, normalizeHome } from "./filesystem.js";
 export type { WexelFileSystemLike, WexelQuota } from "./filesystem.js";
