@@ -184,9 +184,11 @@ npm install <pkg>
 pnpm install <pkg>
 ```
 
-The shell itself (`runtime.shell`) runs on the real BusyBox binary inside the
-Linux kernel compiled to WebAssembly (`assets/linux-kernel/`), wired up via
-`kernel-boot.ts` — see `packages/wexel/assets/README-4.0.md` for details.
+The shell itself (`runtime.shell`) is backed by the real BusyBox WASM runner.
+The S1 kernel is a separate freestanding C++ module compiled to WebAssembly;
+it owns service lifecycle state and its virtual `/proc` interface, while
+network operations are exposed only through explicit Wexel host imports.
+Build the S1 artifact with `npm run build:s1`; see `docs/s1-kernel.md`.
 
 HTML remains part of the V9 environment rather than the Wexel.js runtime.
 
