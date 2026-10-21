@@ -14,9 +14,9 @@ import { readPackagedAsset, readPackagedGzip } from "./toolchain-assets.js";
 import { WexelZigWasiToolchain } from "./zig-wasi-toolchain.js";
 import { runMultiCVfs } from "./multic.js";
 import { WexelShell } from "./shell.js";
-import { WexelMemory64FileSystem, type WexelFileSystemLike } from "./filesystem.js";
-export { WexelFileSystem, WexelMemory64FileSystem, normalizeHome } from "./filesystem.js";
-export type { WexelFileSystemLike, WexelQuota } from "./filesystem.js";
+import { WexelMemory64FileSystem, type WexelFileSystemLike } from "@wexel/core";
+export { WexelFileSystem, WexelMemory64FileSystem, normalizeHome } from "@wexel/core";
+export type { WexelFileSystemLike, WexelQuota } from "@wexel/core";
 
 export type Language = "python" | "wasm" | "javascript" | "typescript" | string;
 
