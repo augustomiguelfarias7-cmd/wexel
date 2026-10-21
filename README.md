@@ -48,7 +48,7 @@ For a project that consumes the package directly from Git:
 npm install git+https://github.com/augustomiguelfarias7-cmd/wexel.git
 ```
 
-The repository is structured as an npm workspace containing the public `wexel` package and `@wexel/core`, which provides the Memory64 core and service lifecycle manager.
+The repository is structured as an npm workspace containing the public `wexel` package and `@wexel/core`, which owns the Memory64 artifact interface, Memory64-backed VFS, service manager, and runtime lifecycle manager.
 
 ## Quick Start
 
