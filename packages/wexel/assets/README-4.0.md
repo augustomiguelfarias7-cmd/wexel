@@ -10,6 +10,6 @@
 - Os adaptadores Python, WebPinke e os executores de outras linguagens continuam
   sendo componentes separados do kernel.
 
-O artefato S1 é gerado pelo build local. A substituição do artefato Linux antigo
-só deve ser considerada concluída depois de compilar e validar o S1 e verificar
-o carregamento de BusyBox e as APIs de rede no runtime.
+O artefato `s-kernel/s1.wasm` é gerado pelo build local com Clang/LLD. Antes
+de publicar uma distribuição, execute o build e os testes do pacote para validar
+o ABI S1, o carregamento do BusyBox e a política de rede do host.
