@@ -144,6 +144,13 @@ export class WexelLifecycleManager {
     return attempt;
   }
 
+  reportComponentFailure(name: string, error: unknown): void {
+    const component = this.requireComponent(name);
+    component.state = "failed";
+    component.error = error instanceof Error ? error.message : String(error);
+    this.degraded(`Componente ${name} falhou: ${component.error}`);
+  }
+
   async recoverComponents(names?: string[]): Promise<void> {
     const targets = names ?? [...this.components.entries()]
       .filter(([, item]) => item.required && item.state !== "ready")
