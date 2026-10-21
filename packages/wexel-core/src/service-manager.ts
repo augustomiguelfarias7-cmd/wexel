@@ -58,7 +58,10 @@ export class WexelServiceManager {
   async startAll(): Promise<void> {
     const started: string[] = [];
     try {
-      for (const [name] of this.services) {
+      for (const [name, item] of this.services) {
+        // Do not include services that were already running in this startup
+        // transaction: a later failure must not stop pre-existing services.
+        if (item.state === "running") continue;
         await this.start(name);
         started.push(name);
       }
