@@ -69,17 +69,18 @@ export class WexelLifecycleManager {
     }
 
     this.setState("recovering");
-    const attempt = (async () => {
-      try {
-        await action();
+    const attempt = Promise.resolve()
+      .then(action)
+      .then(() => {
         this.setState("running");
-      } catch (error) {
+      })
+      .catch((error: unknown) => {
         this.setState("failed", error instanceof Error ? error.message : String(error));
         throw error;
-      } finally {
+      })
+      .finally(() => {
         this.recovery = undefined;
-      }
-    })();
+      });
     this.recovery = attempt;
     return attempt;
   }
