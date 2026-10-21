@@ -5,7 +5,6 @@ import { nodeWasiPythonRunnerFactory, type NodeWasiPythonOptions } from "./node-
 import { Wexel, type WexelPermissions, type WexelRuntime, type ExecResult } from "./index.js";
 import type { NativeExtensionManifest } from "./native-extensions.js";
 import { WebPink, type WebPinkClient, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
-import { bootKernel } from "./kernel-boot.js";
 import type { WexelOrchester, WexelOrchesterOptions } from "./wexel-orchester.js";
 
 export interface NodeExecutionBusyBoxOptions {
@@ -18,8 +17,6 @@ export interface NodeExecutionOptions {
   coreBytes: BufferSource;
   /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG). Ver assets/wexeljs/edgejs.wasm. */
   wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
-  /** Kernel Linux-WASM (ver kernel-boot.ts). Sem isso, sandbox.shell fica undefined. */
-  linuxKernel?: Parameters<typeof bootKernel>[0];
   python?: Omit<WasiPythonOptions, "fs">;
   pythonWasi?: Omit<NodeWasiPythonOptions, "fs"> | false;
   busyBox?: NodeExecutionBusyBoxOptions;
@@ -47,8 +44,6 @@ export interface BackendSandbox {
 export class NodeExecution {
   private readonly sandboxes = new Map<string, BackendSandbox>();
   readonly webPink?: WebPink;
-  /** Cada sandbox recebe seu próprio boot/kernel Linux-WASM. */
-  private readonly kernelBoots = new Map<string, Awaited<ReturnType<typeof bootKernel>>>();
 
   private constructor(private readonly options: NodeExecutionOptions, webPink?: WebPink) {
     this.webPink = webPink;
@@ -83,7 +78,7 @@ export class NodeExecution {
   /**
    * Cria um orquestrador multiprocesso usando o Core desta instância.
    * Encaminha a configuração serializável do WebPink e as permissões de rede.
-   * Runners JS/Python, kernel, BusyBox e adaptadores FS ainda não são encaminhados.
+   * Runners locais de JS/Python, BusyBox e adaptadores FS não são encaminhados.
    */
   async createOrchester(options: Omit<WexelOrchesterOptions, "coreBytes"> = {}): Promise<WexelOrchester> {
     const { WexelOrchester } = await import("./wexel-orchester.js");
@@ -112,11 +107,7 @@ export class NodeExecution {
       return fetch(input, init);
     }) as typeof fetch;
 
-    // Não reutilizar a instância do kernel: cada sandbox precisa de estado isolado.
-    const kernelBoot = this.options.linuxKernel
-      ? await bootKernel(this.options.linuxKernel)
-      : undefined;
-
+    // Inicialize o executor de comandos antes de disponibilizar o runtime.
     const sandboxBusyBox = this.options.busyBox
       ? await createBusyBoxRunner(
           this.options.busyBox.factory,
@@ -126,8 +117,6 @@ export class NodeExecution {
 
     const runtime = await Wexel.create({
       coreBytes: this.options.coreBytes,
-      kernel: kernelBoot?.kernel,
-      kernelOutput: kernelBoot?.kernelOutput,
       permissions: options.permissions,
       storageQuotaBytes: options.storageQuotaBytes,
       homeDirectory: options.homeDirectory ?? `/home/${id}`,
@@ -139,7 +128,10 @@ export class NodeExecution {
           ? undefined
           : nodeWasiPythonRunnerFactory(this.options.pythonWasi ?? {}),
       bashRunner: sandboxBusyBox
-        ? async (args) => sandboxBusyBox.run({ args: ["busybox", "sh", ...args] })
+        ? async (args) => sandboxBusyBox.run({ args: ["busybox", ...args] })
+        : undefined,
+      shellRunner: sandboxBusyBox
+        ? async (command) => sandboxBusyBox.run({ args: ["busybox", "sh", "-c", command] })
         : undefined,
       networkFetch: sandboxFetcher,
       nativeCliBytes: this.options.nativeCliBytes,
@@ -147,7 +139,6 @@ export class NodeExecution {
     });
 
     const sandbox = { id, runtime, createdAt: Date.now(), webPink };
-    if (kernelBoot) this.kernelBoots.set(id, kernelBoot);
     this.sandboxes.set(id, sandbox);
     return sandbox;
   }
@@ -162,14 +153,12 @@ export class NodeExecution {
 
   destroySandbox(id: string): boolean {
     this.webPink?.removeClient(id);
-    this.kernelBoots.delete(id);
     return this.sandboxes.delete(id);
   }
 
   async dispose(): Promise<void> {
     for (const id of this.sandboxes.keys()) this.webPink?.removeClient(id);
     this.sandboxes.clear();
-    this.kernelBoots.clear();
   }
 }
 
