@@ -39,3 +39,6 @@ export async function instantiateCore(bytes: BufferSource): Promise<WexelCoreIns
 export function coreSourceUrl(): string {
   return new URL("./core.wasm", import.meta.url).toString();
 }
+
+export { WexelServiceManager } from "./service-manager.js";
+export type { WexelService, WexelServiceSnapshot, WexelServiceState } from "./service-manager.js";
