@@ -82,7 +82,7 @@ export interface WexelOptions {
 // ── WexelRuntime ──────────────────────────────────────────────────────────────
 
 export class WexelRuntime {
-  /** undefined ate que options.kernel + options.kernelOutput sejam fornecidos (kernel ja precisa estar de pe). */
+  /** Disponível quando o runner BusyBox foi configurado. */
   readonly shell?:      WexelShell;
   readonly permissions: Required<WexelPermissions>;
   readonly fs:          WexelFileSystemLike;
@@ -119,10 +119,7 @@ export class WexelRuntime {
     this.packages     = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl, fetcher: this.networkFetch });
     this.permissions  = { network: false, storage: true, files: false, modules: true, ...options.permissions };
     this.artifacts    = new WexelArtifactManager(() => this.permissions.modules);
-    if (options.kernel && options.kernelOutput) {
-      this.shell = new WexelShell(options.kernel, options.kernelOutput);
-    }
-    // sem kernel+kernelOutput, this.shell fica undefined (ver WexelOptions.kernel)
+    if (options.shellRunner) this.shell = new WexelShell(options.shellRunner);
   }
 
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
