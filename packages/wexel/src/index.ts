@@ -100,7 +100,8 @@ export class WexelRuntime {
   readonly extensions = new NativeExtensionRegistry();
   readonly networkFetch: typeof fetch;
 
-  private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
+  private pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
+  private readonly pythonRunnerFactory?: (fs: WexelFileSystemLike) => NonNullable<WexelOptions["pythonRunner"]>;
   private readonly _wexelJsRunner?: WexelOptions["wexelJsRunner"];
   private readonly bashRunner?:   WexelOptions["bashRunner"];
   private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
@@ -115,7 +116,8 @@ export class WexelRuntime {
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.mode         = options.mode ?? "run";
     this.fs           = options.fs ?? new WexelMemory64FileSystem(core, options.storageQuotaBytes, options.homeDirectory);
-    this.pythonRunner = options.pythonRunner ?? options.pythonRunnerFactory?.(this.fs);
+    this.pythonRunnerFactory = options.pythonRunnerFactory;
+    this.pythonRunner = options.pythonRunner ?? this.pythonRunnerFactory?.(this.fs);
     this._wexelJsRunner = options.wexelJsRunner;
     this.bashRunner   = options.bashRunner;
     this.networkFetch = options.networkFetch ?? fetch;
@@ -133,15 +135,54 @@ export class WexelRuntime {
     const runtime = new WexelRuntime(await instantiateCore(bytes), options);
     runtime.lifecycle.starting();
     try {
-      if (options.goExecutorBytes) runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({
-        language: "go", artifact: options.goExecutorBytes, fs: runtime.fs,
-        imports: options.goExecutorImports, wasmExecJs: options.goWasmExecJs,
-      }));
-      if (options.zigExecutorBytes) runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({
-        language: "zig", artifact: options.zigExecutorBytes, fs: runtime.fs,
-        imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
-      }));
-      for (const ext of options.nativeExtensions ?? []) await runtime.loadNativeExtension(ext.manifest, ext.source);
+      // Every integration that performs initialization is registered with the
+      // same generic lifecycle supervisor, so recovery isn't CPython-specific.
+      if (options.pythonRunnerFactory) {
+        runtime.lifecycle.registerComponent("executor:python", async () => {
+          runtime.pythonRunner = options.pythonRunnerFactory!(runtime.fs);
+        });
+      } else if (runtime.pythonRunner) {
+        runtime.lifecycle.registerComponent("executor:python", async () => {
+          if (!runtime.pythonRunner) throw new Error("Executor Python não está disponível.");
+        });
+      }
+      if (runtime._wexelJsRunner) {
+        runtime.lifecycle.registerComponent("executor:wexeljs", async () => {
+          if (!runtime._wexelJsRunner) throw new Error("Executor Wexel.js não está disponível.");
+        });
+      }
+      if (runtime.bashRunner) {
+        runtime.lifecycle.registerComponent("integration:bash", async () => {
+          if (!runtime.bashRunner) throw new Error("Integração Bash não está disponível.");
+        });
+      }
+      if (options.shellRunner) {
+        runtime.lifecycle.registerComponent("integration:shell", async () => {
+          if (!runtime.shell) throw new Error("Integração de shell não está disponível.");
+        });
+      }
+      if (options.goExecutorBytes) {
+        runtime.lifecycle.registerComponent("executor:go", async () => {
+          runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({
+            language: "go", artifact: options.goExecutorBytes!, fs: runtime.fs,
+            imports: options.goExecutorImports, wasmExecJs: options.goWasmExecJs,
+          }));
+        });
+      }
+      if (options.zigExecutorBytes) {
+        runtime.lifecycle.registerComponent("executor:zig", async () => {
+          runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({
+            language: "zig", artifact: options.zigExecutorBytes!, fs: runtime.fs,
+            imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
+          }));
+        });
+      }
+      for (const ext of options.nativeExtensions ?? []) {
+        runtime.lifecycle.registerComponent(`extension:${ext.manifest.name}`, async () => {
+          await runtime.loadNativeExtension(ext.manifest, ext.source);
+        });
+      }
+      await runtime.lifecycle.initializeComponents();
       runtime.services.register("runtime", { start: () => runtime.buzz.emit("runtime:ready", { mode: runtime.mode }) });
       await runtime.services.startAll();
       runtime.lifecycle.running();
@@ -162,6 +203,16 @@ export class WexelRuntime {
       await this.services.stopAll();
       await this.services.startAll();
     });
+  }
+
+  /** Reinitializes one registered integration using its original initializer. */
+  async recoverComponent(name: string): Promise<void> {
+    await this.lifecycle.recoverComponent(name);
+  }
+
+  /** Reinitializes all required integrations that are not currently ready. */
+  async recoverComponents(): Promise<void> {
+    await this.lifecycle.recoverComponents();
   }
 
   /** Stops runtime-owned services and records the terminal lifecycle state. */
