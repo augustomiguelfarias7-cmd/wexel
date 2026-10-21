@@ -117,7 +117,8 @@ export class WexelRuntime {
     this.mode         = options.mode ?? "run";
     this.fs           = options.fs ?? new WexelMemory64FileSystem(core, options.storageQuotaBytes, options.homeDirectory);
     this.pythonRunnerFactory = options.pythonRunnerFactory;
-    this.pythonRunner = options.pythonRunner ?? this.pythonRunnerFactory?.(this.fs);
+    // Factories run under lifecycle supervision during startup and recovery.
+    this.pythonRunner = options.pythonRunner;
     this._wexelJsRunner = options.wexelJsRunner;
     this.bashRunner   = options.bashRunner;
     this.networkFetch = options.networkFetch ?? fetch;
