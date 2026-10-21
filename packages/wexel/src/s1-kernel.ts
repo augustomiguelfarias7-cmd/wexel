@@ -140,6 +140,39 @@ export class S1Kernel {
     return result;
   }
 
+  openSocket(domain: number, type: number, protocol = 0): number {
+    return this.wasm.s1_socket_open(domain, type, protocol);
+  }
+
+  connectSocket(fd: number, address: string): number {
+    this.wasm.s1_reset_alloc();
+    const bytes = encoder.encode(address);
+    const ptr = this.allocate(bytes);
+    if (!ptr) return -28;
+    return this.wasm.s1_socket_connect(fd, ptr, bytes.byteLength);
+  }
+
+  sendSocket(fd: number, data: Uint8Array): number {
+    this.wasm.s1_reset_alloc();
+    const ptr = this.allocate(data);
+    if (!ptr && data.byteLength) return -28;
+    return this.wasm.s1_socket_send(fd, ptr, data.byteLength);
+  }
+
+  receiveSocket(fd: number, capacity: number): Uint8Array | number {
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 65536) return -22;
+    this.wasm.s1_reset_alloc();
+    const ptr = this.wasm.s1_alloc(capacity);
+    if (!ptr) return -28;
+    const result = this.wasm.s1_socket_recv(fd, ptr, capacity);
+    if (result < 0) return result;
+    return new Uint8Array(this.wasm.memory.buffer, ptr, result).slice();
+  }
+
+  closeSocket(fd: number): number {
+    return this.wasm.s1_socket_close(fd);
+  }
+
   private withString(value: string, callback: (ptr: number) => number): number {
     this.wasm.s1_reset_alloc();
     const ptr = this.allocate(encoder.encode(value + "\0"));
