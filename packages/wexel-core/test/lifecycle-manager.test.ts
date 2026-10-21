@@ -46,7 +46,7 @@ describe("WexelLifecycleManager", () => {
     let attempts = 0;
     lifecycle.registerComponent("integration:transient", async () => {
       attempts += 1;
-      if (attempts === 1) throw new Error("artifact unavailable");
+      if (attempts < 3) throw new Error("artifact unavailable");
     });
     lifecycle.starting();
     await expect(lifecycle.initializeComponents()).rejects.toThrow("artifact unavailable");
@@ -60,7 +60,7 @@ describe("WexelLifecycleManager", () => {
     await lifecycle.recoverComponent("integration:transient");
     expect(lifecycle.componentSnapshots()[0].state).toBe("ready");
     expect(lifecycle.state).toBe("running");
-    expect(attempts).toBe(2);
+    expect(attempts).toBe(3);
   });
 
   it("records a failed recovery reason and rethrows the error", async () => {
