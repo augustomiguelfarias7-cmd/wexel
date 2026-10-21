@@ -110,6 +110,8 @@ export class WexelRuntime {
   private readonly languageExecutors = new Map<CompiledLanguage, WexelLanguageExecutor>();
   private readonly zigWasiToolchain = new WexelZigWasiToolchain();
   private bundledGoExecutor?: Promise<WexelLanguageExecutor>;
+  private bundledGoInitialization?: Promise<void>;
+  private bundledGoComponentRegistered = false;
   private _git?:          WexelGit;
 
 
@@ -279,21 +281,35 @@ export class WexelRuntime {
     return (await this.zigWasiToolchain.compileFile(this.fs, sourcePath, outputPath)).outputPath;
   }
 
-  private getBundledGoExecutor(): Promise<WexelLanguageExecutor> {
-    if (!this.bundledGoExecutor) {
-      this.bundledGoExecutor = Promise.all([
-        readPackagedGzip("../assets/toolchains/go/yaegi.wasm.gz"),
-        readPackagedAsset("../assets/toolchains/go/wasm_exec.js"),
-      ]).then(([artifact, wasmExecJs]) => {
-        const moduleBytes = new Uint8Array(artifact);
-        return WexelLanguageExecutor.load({
-          language: "go",
-          artifact: moduleBytes.buffer,
-          fs: this.fs,
-          wasmExecJs: new TextDecoder().decode(wasmExecJs),
+  private async getBundledGoExecutor(): Promise<WexelLanguageExecutor> {
+    if (!this.bundledGoComponentRegistered) {
+      this.lifecycle.registerComponent("executor:go-bundled", async () => {
+        // Clear a rejected promise before each attempt so recovery can reload it.
+        this.bundledGoExecutor = Promise.all([
+          readPackagedGzip("../assets/toolchains/go/yaegi.wasm.gz"),
+          readPackagedAsset("../assets/toolchains/go/wasm_exec.js"),
+        ]).then(([artifact, wasmExecJs]) => {
+          const moduleBytes = new Uint8Array(artifact);
+          return WexelLanguageExecutor.load({
+            language: "go",
+            artifact: moduleBytes.buffer,
+            fs: this.fs,
+            wasmExecJs: new TextDecoder().decode(wasmExecJs),
+          });
         });
+        await this.bundledGoExecutor;
+      });
+      this.bundledGoComponentRegistered = true;
+    }
+
+    if (!this.bundledGoInitialization) {
+      this.bundledGoInitialization = this.lifecycle.initializeComponent("executor:go-bundled").finally(() => {
+        const state = this.lifecycle.componentSnapshots().find((item) => item.name === "executor:go-bundled")?.state;
+        if (state !== "ready") this.bundledGoInitialization = undefined;
       });
     }
+    await this.bundledGoInitialization;
+    if (!this.bundledGoExecutor) throw new Error("Executor Go embutido não foi inicializado.");
     return this.bundledGoExecutor;
   }
 
