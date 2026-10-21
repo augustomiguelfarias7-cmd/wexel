@@ -496,6 +496,6 @@ export { WexelGit, type GitOptions } from "./git.js";
 export { runCurl, type CurlOptions, type CurlResult } from "./curl.js";
 export { WebPink, WebPinkClient, type WebPinkMessage, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
 export { WexelLifecycleManager } from "@wexel/core";
-export type { WexelLifecycleSnapshot, WexelLifecycleState } from "@wexel/core";
+export type { WexelComponentSnapshot, WexelComponentState, WexelLifecycleSnapshot, WexelLifecycleState } from "@wexel/core";
 export type { WexelCoreInstance } from "@wexel/core";
 
