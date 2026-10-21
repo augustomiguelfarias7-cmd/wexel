@@ -108,6 +108,7 @@ pub fn main() !void { std.debug.print("Zig compilado no WASM\\n", .{}); }
     const second = await execution.createSandbox({ id: "segunda" });
     first.runtime.fs.write("/somente-na-primeira.txt", "ok");
     expect(first.runtime.fs.home).toBe("/home/primeira");
+    expect(first.runtime.core.exports.memory).not.toBe(second.runtime.core.exports.memory);
     expect(second.runtime.fs.exists("/somente-na-primeira.txt")).toBe(false);
     expect(execution.listSandboxes().map((sandbox) => sandbox.id)).toEqual(["primeira", "segunda"]);
     expect(execution.destroySandbox("primeira")).toBe(true);
