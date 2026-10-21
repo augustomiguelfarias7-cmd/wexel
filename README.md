@@ -123,7 +123,7 @@ Node.js / Express / Fastify / API
 
 Each sandbox is created independently and receives its own runtime instance, WebAssembly Memory64 memory, and virtual filesystem. In a browser, a created runtime is one environment with its own memory and VFS.
 
-The runtime exposes `runtime.lifecycle.state` and `runtime.lifecycle.snapshot()` to inspect lifecycle state. `runtime.recoverServices()` attempts to stop and restart registered services; `runtime.shutdown()` stops them and records the terminal state. These APIs recover services while the owning process is alive. A completely exited Node.js process must be detected by the external supervisor, such as the existing WexelOrchester.
+The runtime exposes `runtime.lifecycle.state` and `runtime.lifecycle.snapshot()` to inspect lifecycle state, plus `runtime.lifecycle.componentSnapshots()` to inspect each registered integration. The Core lifecycle manager tracks configured language executors, native extensions, and runtime adapters through one generic component API. Initialization failures receive one automatic retry; `runtime.recoverComponent(name)` retries one integration and `runtime.recoverComponents()` retries required integrations that are not ready. `runtime.recoverServices()` remains responsible for stopping and restarting registered services, while `runtime.shutdown()` stops them and records the terminal state. These APIs operate while the owning process is alive. A completely exited Node.js process must be detected by the external supervisor, such as the existing WexelOrchester.
 
 ### Gestão de artefatos WebAssembly
 
