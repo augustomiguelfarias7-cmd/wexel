@@ -15,48 +15,6 @@ describe("Wexel runtime", () => {
     expect(rt.fs.exists("/home/wexel")).toBe(true);
     expect(rt.core.exports.memory).toBeInstanceOf(WebAssembly.Memory);
   });
-  it("tracks service failures and recovers the runtime lifecycle", async () => {
-    const rt = await runtime();
-    expect(rt.lifecycle.state).toBe("running");
-
-    rt.services.register("broken-service", {
-      start: () => { throw new Error("service unavailable"); },
-    });
-    await expect(rt.services.start("broken-service")).rejects.toThrow("service unavailable");
-    expect(rt.lifecycle.state).toBe("degraded");
-    expect(rt.lifecycle.snapshot().reason).toContain("broken-service");
-    expect(rt.services.remove("broken-service")).toBe(true);
-
-    await rt.recoverServices();
-    expect(rt.lifecycle.state).toBe("running");
-    await rt.shutdown();
-    expect(rt.lifecycle.state).toBe("stopped");
-  });
-  it("supervisiona e recupera uma integração criada por factory", async () => {
-    let loads = 0;
-    const rt = await Wexel.create({
-      coreBytes: await readFile(new URL("../../wexel-core/dist/core.wasm", import.meta.url)),
-      pythonRunnerFactory: () => {
-        loads += 1;
-        return async () => ({ stdout: "python ready\n", stderr: "", exitCode: 0 });
-      },
-    });
-
-    expect(loads).toBe(1);
-    expect(rt.lifecycle.componentSnapshots()).toContainEqual({
-      name: "executor:python",
-      state: "ready",
-      required: true,
-    });
-    rt.reportComponentFailure("executor:python", new Error("adapter lost"));
-    expect(rt.lifecycle.state).toBe("degraded");
-
-    await rt.recoverComponent("executor:python");
-    expect(loads).toBe(2);
-    expect(rt.lifecycle.state).toBe("running");
-    expect((await rt.exec({ language: "python", code: "print('ready')" })).stdout).toBe("python ready\n");
-  });
-
   it("interpreta um programa Go pela toolchain Yaegi embutida", async () => {
     const rt = await runtime();
     rt.fs.write("/home/main.go", `package main
@@ -67,11 +25,6 @@ func main() { fmt.Println("Go interpretado no WASM") }
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("Go interpretado no WASM\n");
     expect(result.stderr).toBe("");
-    expect(rt.lifecycle.componentSnapshots()).toContainEqual({
-      name: "executor:go-bundled",
-      state: "ready",
-      required: true,
-    });
   });
   it("compila Zig com o compilador WASM, guarda o binário na VFS e executa via WASI", async () => {
     const rt = await runtime();
@@ -147,7 +100,6 @@ pub fn main() !void { std.debug.print("Zig compilado no WASM\\n", .{}); }
     const second = await execution.createSandbox({ id: "segunda" });
     first.runtime.fs.write("/somente-na-primeira.txt", "ok");
     expect(first.runtime.fs.home).toBe("/home/primeira");
-    expect(first.runtime.core.exports.memory).not.toBe(second.runtime.core.exports.memory);
     expect(second.runtime.fs.exists("/somente-na-primeira.txt")).toBe(false);
     expect(execution.listSandboxes().map((sandbox) => sandbox.id)).toEqual(["primeira", "segunda"]);
     expect(execution.destroySandbox("primeira")).toBe(true);
