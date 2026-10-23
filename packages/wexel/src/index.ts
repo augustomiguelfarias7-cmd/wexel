@@ -1,4 +1,4 @@
-import { instantiateCore, type WexelCoreInstance } from "@wexel/core";
+import { instantiateCore, WexelLifecycleManager, WexelServiceManager, type WexelCoreInstance } from "@wexel/core";
 import { WexelArtifactManager, type LoadArtifactOptions } from "./artifact-manager.js";
 import { BuzzBox } from "./buzz-box.js";
 import { PythonPackageManager } from "./python-packages.js";
@@ -14,9 +14,9 @@ import { readPackagedAsset, readPackagedGzip } from "./toolchain-assets.js";
 import { WexelZigWasiToolchain } from "./zig-wasi-toolchain.js";
 import { runMultiCVfs } from "./multic.js";
 import { WexelShell } from "./shell.js";
-import { WexelMemory64FileSystem, type WexelFileSystemLike } from "./filesystem.js";
-export { WexelFileSystem, WexelMemory64FileSystem, normalizeHome } from "./filesystem.js";
-export type { WexelFileSystemLike, WexelQuota } from "./filesystem.js";
+import { WexelMemory64FileSystem, type WexelFileSystemLike } from "@wexel/core";
+export { WexelFileSystem, WexelMemory64FileSystem, normalizeHome } from "@wexel/core";
+export type { WexelFileSystemLike, WexelQuota } from "@wexel/core";
 
 export type Language = "python" | "wasm" | "javascript" | "typescript" | string;
 
@@ -55,6 +55,8 @@ export interface WexelOptions {
   /** Executa JS/TS via Wexel.js (Edge.js + QuickJS-NG, ver assets/wexeljs/edgejs.wasm). */
   wexelJsRunner?: (code: string, language: "javascript" | "typescript", args: string[]) => Promise<ExecResult> | ExecResult;
   bashRunner?: (args: string[]) => Promise<ExecResult> | ExecResult;
+  /** Executa comandos por um serviço de shell inicializado para o runtime. */
+  shellRunner?: (command: string) => Promise<ExecResult> | ExecResult;
   networkFetch?: typeof fetch;
   pypiIndexUrl?: string;
   v9?: V9Document;
@@ -75,22 +77,19 @@ export interface WexelOptions {
   /** Optional Zig standard-library archive for the legacy zigc-wasm compiler adapter. */
   zigStdZip?: BufferSource | string;
   nativeExtensions?: Array<{ manifest: NativeExtensionManifest; source: BufferSource }>;
-  /**
-   * Kernel Linux-WASM ja inicializado (retorno de linux(...) em
-   * linux-node.js/linux-browser.js) e a funcao de captura de saida ligada ao
-   * console_write usado nesse boot. Sem os dois, this.shell fica undefined —
-   * o boot do kernel em si ainda precisa ser feito por quem monta o
-   * NodeExecution, antes de passar pra ca.
-   */
-  kernel?: import("./kernel-busybox-connector.js").BootedKernel;
-  kernelOutput?: (listener: (chunk: string) => void) => () => void;
 }
 
 // ── WexelRuntime ──────────────────────────────────────────────────────────────
 
 export class WexelRuntime {
-  /** undefined ate que options.kernel + options.kernelOutput sejam fornecidos (kernel ja precisa estar de pe). */
-  readonly shell?:      WexelShell;
+  /** Interface de comandos disponível quando um shellRunner é configurado. */
+  readonly shell?: WexelShell;
+  /** Acompanha o estado do runtime e coordena recuperação de serviços. */
+  readonly lifecycle = new WexelLifecycleManager();
+  /** Gerencia serviços e sinaliza falhas ao monitor de ciclo de vida. */
+  readonly services = new WexelServiceManager((service) => {
+    this.lifecycle.degraded(`Serviço ${service.name} falhou: ${service.error ?? "erro desconhecido"}`);
+  });
   readonly permissions: Required<WexelPermissions>;
   readonly fs:          WexelFileSystemLike;
   readonly artifacts:   WexelArtifactManager;
@@ -101,7 +100,8 @@ export class WexelRuntime {
   readonly extensions = new NativeExtensionRegistry();
   readonly networkFetch: typeof fetch;
 
-  private readonly pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
+  private pythonRunner?: (code: string, args: string[]) => Promise<ExecResult> | ExecResult;
+  private readonly pythonRunnerFactory?: (fs: WexelFileSystemLike) => NonNullable<WexelOptions["pythonRunner"]>;
   private readonly _wexelJsRunner?: WexelOptions["wexelJsRunner"];
   private readonly bashRunner?:   WexelOptions["bashRunner"];
   private readonly gitCloneRunner?: WexelOptions["gitCloneRunner"];
@@ -110,13 +110,17 @@ export class WexelRuntime {
   private readonly languageExecutors = new Map<CompiledLanguage, WexelLanguageExecutor>();
   private readonly zigWasiToolchain = new WexelZigWasiToolchain();
   private bundledGoExecutor?: Promise<WexelLanguageExecutor>;
+  private bundledGoInitialization?: Promise<void>;
+  private bundledGoComponentRegistered = false;
   private _git?:          WexelGit;
 
 
   private constructor(readonly core: WexelCoreInstance, options: WexelOptions) {
     this.mode         = options.mode ?? "run";
     this.fs           = options.fs ?? new WexelMemory64FileSystem(core, options.storageQuotaBytes, options.homeDirectory);
-    this.pythonRunner = options.pythonRunner ?? options.pythonRunnerFactory?.(this.fs);
+    this.pythonRunnerFactory = options.pythonRunnerFactory;
+    // Factories run under lifecycle supervision during startup and recovery.
+    this.pythonRunner = options.pythonRunner;
     this._wexelJsRunner = options.wexelJsRunner;
     this.bashRunner   = options.bashRunner;
     this.networkFetch = options.networkFetch ?? fetch;
@@ -126,26 +130,109 @@ export class WexelRuntime {
     this.packages     = new PythonPackageManager({ fs: this.fs, indexUrl: options.pypiIndexUrl, fetcher: this.networkFetch });
     this.permissions  = { network: false, storage: true, files: false, modules: true, ...options.permissions };
     this.artifacts    = new WexelArtifactManager(() => this.permissions.modules);
-    if (options.kernel && options.kernelOutput) {
-      this.shell = new WexelShell(options.kernel, options.kernelOutput);
-    }
-    // sem kernel+kernelOutput, this.shell fica undefined (ver WexelOptions.kernel)
+    if (options.shellRunner) this.shell = new WexelShell(options.shellRunner);
   }
 
   static async create(options: WexelOptions = {}): Promise<WexelRuntime> {
     const bytes   = options.coreBytes ?? await defaultCoreBytes();
     const runtime = new WexelRuntime(await instantiateCore(bytes), options);
-    if (options.goExecutorBytes) runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({
-      language: "go", artifact: options.goExecutorBytes, fs: runtime.fs,
-      imports: options.goExecutorImports, wasmExecJs: options.goWasmExecJs,
-    }));
-    if (options.zigExecutorBytes) runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({
-      language: "zig", artifact: options.zigExecutorBytes, fs: runtime.fs,
-      imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
-    }));
-    for (const ext of options.nativeExtensions ?? []) await runtime.loadNativeExtension(ext.manifest, ext.source);
-    runtime.buzz.emit("runtime:ready", { mode: runtime.mode });
-    return runtime;
+    runtime.lifecycle.starting();
+    try {
+      // Every integration that performs initialization is registered with the
+      // same generic lifecycle supervisor, so recovery isn't CPython-specific.
+      if (options.pythonRunnerFactory) {
+        runtime.lifecycle.registerComponent("executor:python", async () => {
+          runtime.pythonRunner = options.pythonRunnerFactory!(runtime.fs);
+        });
+      } else if (runtime.pythonRunner) {
+        runtime.lifecycle.registerComponent("executor:python", async () => {
+          if (!runtime.pythonRunner) throw new Error("Executor Python não está disponível.");
+        });
+      }
+      if (runtime._wexelJsRunner) {
+        runtime.lifecycle.registerComponent("executor:wexeljs", async () => {
+          if (!runtime._wexelJsRunner) throw new Error("Executor Wexel.js não está disponível.");
+        });
+      }
+      if (runtime.bashRunner) {
+        runtime.lifecycle.registerComponent("integration:bash", async () => {
+          if (!runtime.bashRunner) throw new Error("Integração Bash não está disponível.");
+        });
+      }
+      if (options.shellRunner) {
+        runtime.lifecycle.registerComponent("integration:shell", async () => {
+          if (!runtime.shell) throw new Error("Integração de shell não está disponível.");
+        });
+      }
+      if (options.goExecutorBytes) {
+        runtime.lifecycle.registerComponent("executor:go", async () => {
+          runtime.languageExecutors.set("go", await WexelLanguageExecutor.load({
+            language: "go", artifact: options.goExecutorBytes!, fs: runtime.fs,
+            imports: options.goExecutorImports, wasmExecJs: options.goWasmExecJs,
+          }));
+        });
+      }
+      if (options.zigExecutorBytes) {
+        runtime.lifecycle.registerComponent("executor:zig", async () => {
+          runtime.languageExecutors.set("zig", await WexelLanguageExecutor.load({
+            language: "zig", artifact: options.zigExecutorBytes!, fs: runtime.fs,
+            imports: options.zigExecutorImports, zigStdZip: options.zigStdZip,
+          }));
+        });
+      }
+      for (const ext of options.nativeExtensions ?? []) {
+        runtime.lifecycle.registerComponent(`extension:${ext.manifest.name}`, async () => {
+          await runtime.loadNativeExtension(ext.manifest, ext.source);
+        });
+      }
+      await runtime.lifecycle.initializeComponents();
+      runtime.services.register("runtime", { start: () => runtime.buzz.emit("runtime:ready", { mode: runtime.mode }) });
+      await runtime.services.startAll();
+      runtime.lifecycle.running();
+      return runtime;
+    } catch (error) {
+      runtime.lifecycle.failed(error instanceof Error ? error.message : String(error));
+      try { await runtime.services.stopAll(); } catch { /* preserve the initialization error */ }
+      throw error;
+    }
+  }
+
+  /**
+   * Reinitializes registered services after an incomplete startup or service failure.
+   * Process death itself must be detected by the external Node.js supervisor.
+   */
+  async recoverServices(): Promise<void> {
+    await this.lifecycle.recover(async () => {
+      await this.services.stopAll();
+      await this.services.startAll();
+    });
+  }
+
+  /** Marks a failed integration as degraded so the lifecycle manager can recover it. */
+  reportComponentFailure(name: string, error: unknown): void {
+    this.lifecycle.reportComponentFailure(name, error);
+  }
+
+  /** Reinitializes one registered integration using its original initializer. */
+  async recoverComponent(name: string): Promise<void> {
+    await this.lifecycle.recoverComponent(name);
+  }
+
+  /** Reinitializes all required integrations that are not currently ready. */
+  async recoverComponents(): Promise<void> {
+    await this.lifecycle.recoverComponents();
+  }
+
+  /** Stops runtime-owned services and records the terminal lifecycle state. */
+  async shutdown(): Promise<void> {
+    this.lifecycle.stopping();
+    try {
+      await this.services.stopAll();
+      this.lifecycle.stopped();
+    } catch (error) {
+      this.lifecycle.failed(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   // ── exec principal ─────────────────────────────────────────────────────────
@@ -194,21 +281,35 @@ export class WexelRuntime {
     return (await this.zigWasiToolchain.compileFile(this.fs, sourcePath, outputPath)).outputPath;
   }
 
-  private getBundledGoExecutor(): Promise<WexelLanguageExecutor> {
-    if (!this.bundledGoExecutor) {
-      this.bundledGoExecutor = Promise.all([
-        readPackagedGzip("../assets/toolchains/go/yaegi.wasm.gz"),
-        readPackagedAsset("../assets/toolchains/go/wasm_exec.js"),
-      ]).then(([artifact, wasmExecJs]) => {
-        const moduleBytes = new Uint8Array(artifact);
-        return WexelLanguageExecutor.load({
-          language: "go",
-          artifact: moduleBytes.buffer,
-          fs: this.fs,
-          wasmExecJs: new TextDecoder().decode(wasmExecJs),
+  private async getBundledGoExecutor(): Promise<WexelLanguageExecutor> {
+    if (!this.bundledGoComponentRegistered) {
+      this.lifecycle.registerComponent("executor:go-bundled", async () => {
+        // Clear a rejected promise before each attempt so recovery can reload it.
+        this.bundledGoExecutor = Promise.all([
+          readPackagedGzip("../assets/toolchains/go/yaegi.wasm.gz"),
+          readPackagedAsset("../assets/toolchains/go/wasm_exec.js"),
+        ]).then(([artifact, wasmExecJs]) => {
+          const moduleBytes = new Uint8Array(artifact);
+          return WexelLanguageExecutor.load({
+            language: "go",
+            artifact: moduleBytes.buffer,
+            fs: this.fs,
+            wasmExecJs: new TextDecoder().decode(wasmExecJs),
+          });
         });
+        await this.bundledGoExecutor;
+      });
+      this.bundledGoComponentRegistered = true;
+    }
+
+    if (!this.bundledGoInitialization) {
+      this.bundledGoInitialization = this.lifecycle.initializeComponent("executor:go-bundled").finally(() => {
+        const state = this.lifecycle.componentSnapshots().find((item) => item.name === "executor:go-bundled")?.state;
+        if (state !== "ready") this.bundledGoInitialization = undefined;
       });
     }
+    await this.bundledGoInitialization;
+    if (!this.bundledGoExecutor) throw new Error("Executor Go embutido não foi inicializado.");
     return this.bundledGoExecutor;
   }
 
@@ -223,11 +324,9 @@ export class WexelRuntime {
       if (!language) return { stdout: "", stderr: `wexeljs: extensão não suportada: ${target}\n`, exitCode: 2 };
       return this.exec({ language, file: target, args: scriptArgs });
     }
-    // instalação de pacotes agora é feita pelo npm/pnpm reais embutidos no
-    // proprio Wexel.js (ver assets/wexeljs/pnpm.cjs), não por um gerenciador
-    // separado — delega pro shell (BusyBox+kernel) rodando o binario real.
+    // A instalação delega para o serviço de shell configurado pelo ambiente.
     if (command === "add" || command === "install") {
-      if (!this.shell) return { stdout: "", stderr: "Shell (BusyBox/kernel) não foi registrado.\n", exitCode: 2 };
+      if (!this.shell) return { stdout: "", stderr: "Shell não foi registrado. Configure shellRunner ao criar o runtime.\n", exitCode: 2 };
       return this.shell.exec(`pnpm install ${target ?? ""} ${scriptArgs.join(" ")}`.trim());
     }
     return { stdout: "", stderr: "Uso: wexeljs run <arquivo.js|.ts> | wexeljs eval <código> | wexeljs add <pkg> | wexeljs --version\n", exitCode: 2 };
@@ -418,5 +517,7 @@ export { X64_WASM_TRANSLATOR_ABI, translateX64ToWasm, x64RegisterName, x64Regist
 export { WexelGit, type GitOptions } from "./git.js";
 export { runCurl, type CurlOptions, type CurlResult } from "./curl.js";
 export { WebPink, WebPinkClient, type WebPinkMessage, type WebPinkOptions, type WebPinkSandboxPolicy } from "./web-pink.js";
+export { WexelLifecycleManager } from "@wexel/core";
+export type { WexelComponentSnapshot, WexelComponentState, WexelLifecycleSnapshot, WexelLifecycleState } from "@wexel/core";
 export type { WexelCoreInstance } from "@wexel/core";
 

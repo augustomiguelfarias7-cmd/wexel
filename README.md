@@ -17,11 +17,11 @@ Wexel provides a virtual filesystem, shell execution, WebAssembly modules, langu
 
 - WebAssembly-first execution
 - **New in 4.0:** Wexel.js — Node.js-compatible JS runtime (based on Edge.js + QuickJS-NG), compiled through the real WASIX toolchain, with `npm`/`pnpm` built in
-- **New in 4.0:** real Linux kernel compiled to WebAssembly (NOMMU), running a genuine BusyBox shell inside `NodeExecution` via `worker_threads`
-- **New in 4.0:** shell now runs on the real BusyBox inside that kernel instead of a 40-command reimplementation
+- **Core services:** `@wexel/core` provides Memory64 allocation, the VFS integration point, service management, and runtime lifecycle tracking/recovery. Each Node.js sandbox gets its own WebAssembly Memory64 instance; browser use remains one runtime instance per created environment.
+- Optional BusyBox WebAssembly command runner, initialized as part of each sandbox environment
 - **New in 4.0:** `pip` (real, unmodified) working through a WebPink-aware network adapter
 - **New in 4.0:** Go runs through the Yaegi interpreter compiled to WebAssembly; Zig source is compiled by a Zig compiler also compiled to WebAssembly, then the generated WASI module is stored in the Memory64 VFS and executed. Both toolchains load lazily from bundled assets. See [`docs/go-zig-wasm.md`](docs/go-zig-wasm.md).
-- Virtual shell with `~` and configurable home directories
+- Optional shell service through a configured command runner
 - Git built-in: `clone`, `status`, `log`, `diff`, `commit` (GitHub + GitLab)
 - curl/wget built-in com rede real (`-X`, `-H`, `-d`, `-o`, `-L`, `--json`)
 - npm and pnpm through the real package managers bundled in Wexel.js
@@ -48,7 +48,7 @@ For a project that consumes the package directly from Git:
 npm install git+https://github.com/augustomiguelfarias7-cmd/wexel.git
 ```
 
-The repository is structured as an npm workspace containing the public `wexel` package and the internal `@wexel/core` package.
+The repository is structured as an npm workspace containing the public `wexel` package and `@wexel/core`, which owns the Memory64 artifact interface, Memory64-backed VFS, service manager, and runtime lifecycle manager.
 
 ## Quick Start
 
@@ -64,9 +64,9 @@ runtime.fs.write(
   "console.log('Hello from Wexel');",
 );
 
-const result = await runtime.shell.exec("cat /app.js");
+const source = runtime.fs.readText("/app.js");
 
-console.log(result);
+console.log(source);
 ```
 
 The runtime operates against its virtual filesystem instead of directly exposing the host filesystem.
@@ -89,14 +89,14 @@ Wexel Runtime
     ├── Storage Quota
     │
     ├── Wexel.js (Edge.js + QuickJS-NG, Node-compatible)
-    ├── Linux kernel (WebAssembly, NOMMU) + BusyBox
+    ├── Core service manager
+    ├── Runtime lifecycle (starting/running/degraded/recovering/stopped/failed)
     ├── CPython / WASI
     ├── Native WASM Extensions
     └── V9
 ```
 
-See `packages/wexel/assets/README-4.0.md` for details on the new 4.0 artifacts
-(the compiled kernel, Wexel.js, and their integration points).
+See `packages/wexel/assets/README-4.0.md` for details on the Wexel 4.0 runtime artifacts and their integration points.
 
 Go/Zig execution details and the optional Wexel Language Executor ABI v1 override are documented in `docs/go-zig-wasm.md`. The default Go path interprets source with the third-party Yaegi interpreter; it is not the official Go compiler or an official Go-project interpreter. The default Zig path compiles `.zig` source to `wasm32-wasi` using the bundled Zig v0.11.0 compiler module and stores the generated `.wasm` beside the source in the VFS.
 
@@ -121,7 +121,9 @@ Node.js / Express / Fastify / API
              WebPink
 ```
 
-Each sandbox is created independently and receives its own runtime instance and virtual filesystem.
+Each sandbox is created independently and receives its own runtime instance, WebAssembly Memory64 memory, and virtual filesystem. In a browser, a created runtime is one environment with its own memory and VFS.
+
+The runtime exposes `runtime.lifecycle.state` and `runtime.lifecycle.snapshot()` to inspect lifecycle state, plus `runtime.lifecycle.componentSnapshots()` to inspect each registered integration. The Core lifecycle manager tracks configured language executors, native extensions, and runtime adapters through one generic component API. Initialization failures receive one automatic retry; `runtime.recoverComponent(name)` retries one integration and `runtime.recoverComponents()` retries required integrations that are not ready. `runtime.recoverServices()` remains responsible for stopping and restarting registered services, while `runtime.shutdown()` stops them and records the terminal state. These APIs operate while the owning process is alive. A completely exited Node.js process must be detected by the external supervisor, such as the existing WexelOrchester.
 
 ### Gestão de artefatos WebAssembly
 
@@ -150,6 +152,7 @@ import { Wexel } from "wexel";
 
 const runtime = await Wexel.create({
   wexelJsRunner: myWexelJsRunner, // executes code via assets/wexeljs/edgejs.wasm
+  shellRunner: myShellRunner, // optional command service for runtime.shell
   permissions: { network: true },
 });
 
@@ -184,9 +187,7 @@ npm install <pkg>
 pnpm install <pkg>
 ```
 
-The shell itself (`runtime.shell`) runs on the real BusyBox binary inside the
-Linux kernel compiled to WebAssembly (`assets/linux-kernel/`), wired up via
-`kernel-boot.ts` — see `packages/wexel/assets/README-4.0.md` for details.
+The shell interface (`runtime.shell`) delegates commands to the configured `shellRunner`. In NodeExecution, an optional BusyBox WebAssembly runner can provide this service; it is initialized before the sandbox is made available. No operating-system kernel is required.
 
 HTML remains part of the V9 environment rather than the Wexel.js runtime.
 
@@ -266,7 +267,7 @@ Create an execution manager:
 const execution = await NodeExecution.create({
   coreBytes,
   wexelJsRunner,
-  linuxKernel, // ver kernel-boot.ts
+  busyBox, // opcional: runner BusyBox WebAssembly para habilitar runtime.shell
 });
 ```
 
@@ -698,12 +699,7 @@ Current package version:
 4.0.0
 ```
 
-Wexel 4.0 adds Wexel.js (a Node.js-compatible JS runtime based on Edge.js and
-QuickJS-NG, compiled through the real WASIX toolchain), a real Linux kernel
-compiled to WebAssembly running an actual BusyBox shell inside
-`NodeExecution`, a WebPink-aware adapter for the real `pip`, and Go/Zig
-toolchain support. See `packages/wexel/assets/README-4.0.md` for details on
-the new artifacts and `CHANGELOG.md`-style notes above for prior versions.
+Wexel 4.0 adds Wexel.js (a Node.js-compatible JS runtime based on Edge.js and QuickJS-NG), the Core Memory64 service manager, a WebPink-aware adapter for real `pip`, and Go/Zig toolchain support. See `packages/wexel/assets/README-4.0.md` for details on the runtime artifacts.
 
 ## License
 
