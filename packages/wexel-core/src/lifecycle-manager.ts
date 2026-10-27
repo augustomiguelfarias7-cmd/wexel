@@ -192,7 +192,9 @@ export class WexelLifecycleManager {
     const attempt = Promise.resolve()
       .then(action)
       .then(() => {
-        this.setState("running");
+        // A successful recovery action must not hide unrelated failed required
+        // components (for example, a service restart while an executor is down).
+        this.refreshState();
       })
       .catch((error: unknown) => {
         this.setState("failed", error instanceof Error ? error.message : String(error));

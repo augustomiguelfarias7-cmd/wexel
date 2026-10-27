@@ -145,7 +145,8 @@ export class WexelMemory64FileSystem implements WexelFileSystemLike {
     if (!this.exists(target)) throw new Error(`Arquivo ou diretório inexistente: ${path}`);
     for (const [filePath, file] of [...this.files]) {
       if (filePath === target || filePath.startsWith(`${target}/`)) {
-        this.core.exports.wexel_memory64_free(file.pointer);
+        // Empty files use the null pointer and own no Core allocation.
+        if (file.pointer !== 0n) this.core.exports.wexel_memory64_free(file.pointer);
         this.files.delete(filePath);
         this.usedBytes -= file.size;
       }
@@ -181,7 +182,8 @@ export class WexelMemory64FileSystem implements WexelFileSystemLike {
         throw error;
       }
     }
-    if (previous) this.core.exports.wexel_memory64_free(previous.pointer);
+    // A zero-length file has no allocated payload, so its pointer must not be freed.
+    if (previous && previous.pointer !== 0n) this.core.exports.wexel_memory64_free(previous.pointer);
     this.files.set(target, { pointer, size: bytes.byteLength });
     this.usedBytes = nextUsed;
   }
